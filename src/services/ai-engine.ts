@@ -22,9 +22,9 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL || process.env.APP_URL || "https://ojadeck.drimes.dev";
 const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "OjaDeck";
 const DEFAULT_OPENROUTER_FALLBACK_MODELS = [
+    "nvidia/nemotron-3-nano-30b-a3b:free",
     "google/gemma-4-31b-it:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
 ];
 const OPENROUTER_FALLBACK_MODELS = (process.env.OPENROUTER_FALLBACK_MODELS || DEFAULT_OPENROUTER_FALLBACK_MODELS.join(","))
     .split(",")
