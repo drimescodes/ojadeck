@@ -165,7 +165,7 @@ export async function initiatePayment(params: InitiatePaymentParams): Promise<st
         amount,
         email,
         transactionRef,
-        callbackUrl = `${process.env.APP_URL || "http://localhost:3000"}/api/webhooks/payments`,
+        callbackUrl = `${process.env.APP_URL || "http://localhost:3000"}/payment/complete`,
     } = params;
 
     const token = await getAccessToken();
@@ -207,38 +207,50 @@ export async function initiatePayment(params: InitiatePaymentParams): Promise<st
  */
 export async function verifyTransaction(params: VerifyTransactionParams): Promise<any> {
     const token = await getAccessToken();
-    const reference = params.orderReference || params.transactionId;
 
-    if (!reference) {
+    if (!params.orderReference && !params.transactionId) {
         throw new Error("Cannot verify Nomba transaction without the required reference.");
     }
 
-    const url = params.orderReference
-        ? new URL(`${config.baseUrl}/v1/checkout/transaction`)
-        : new URL(`${config.baseUrl}/v1/transactions/accounts/single`);
+    const fetchVerification = async (kind: "orderReference" | "transactionId", reference: string): Promise<any> => {
+        const url = kind === "orderReference"
+            ? new URL(`${config.baseUrl}/v1/checkout/transaction`)
+            : new URL(`${config.baseUrl}/v1/transactions/accounts/single`);
+
+        if (kind === "orderReference") {
+            url.searchParams.set("idType", "orderReference");
+            url.searchParams.set("id", reference);
+        } else {
+            url.searchParams.set("transactionRef", reference);
+        }
+
+        const response = await fetch(url, {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                accountId: parentAccountIdForApiCalls(),
+            },
+        });
+
+        const data = await readJsonResponse<any>(response);
+        if (!response.ok || (data.code && data.code !== "00")) {
+            logger.warn({ status: response.status, response: data, kind }, "Nomba transaction verification failed");
+            throw new Error(`Nomba transaction verification failed: ${data.description || response.statusText}`);
+        }
+
+        return data;
+    };
 
     if (params.orderReference) {
-        url.searchParams.set("idType", "orderReference");
-        url.searchParams.set("id", reference);
-    } else {
-        url.searchParams.set("transactionRef", reference);
+        try {
+            return await fetchVerification("orderReference", params.orderReference);
+        } catch (err) {
+            if (!params.transactionId) throw err;
+            logger.warn({ orderReference: params.orderReference, transactionId: params.transactionId }, "Retrying Nomba verification with transaction ID");
+        }
     }
 
-    const response = await fetch(url, {
-        method: "GET",
-        headers: {
-            Authorization: `Bearer ${token}`,
-            accountId: parentAccountIdForApiCalls(),
-        },
-    });
-
-    const data = await readJsonResponse<any>(response);
-    if (!response.ok || (data.code && data.code !== "00")) {
-        logger.warn({ status: response.status, response: data }, "Nomba transaction verification failed");
-        throw new Error(`Nomba transaction verification failed: ${data.description || response.statusText}`);
-    }
-
-    return data;
+    return fetchVerification("transactionId", params.transactionId!);
 }
 
 export function getNombaAmountUnit(): string {

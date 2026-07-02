@@ -66,6 +66,41 @@ app.get("/api/health", (c) => c.json({
     uptime: process.uptime(),
 }));
 
+app.get("/payment/complete", (c) => {
+    const escapeHtml = (value: string) => value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    const orderReference = c.req.query("orderReference");
+    const safeOrderReference = orderReference ? escapeHtml(orderReference) : "";
+    return c.html(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payment received - OjaDeck</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f3ea; color: #18231d; }
+    main { width: min(92vw, 480px); border: 1px solid #e7dfcf; border-radius: 24px; background: #fffdf8; padding: 32px; box-shadow: 0 18px 50px rgba(21, 35, 29, 0.12); }
+    .kicker { color: #7b6b48; font-size: 11px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
+    h1 { margin: 12px 0; font-size: 32px; line-height: 1.05; }
+    p { margin: 0; color: #627168; line-height: 1.7; }
+    .ref { margin-top: 20px; padding: 12px 14px; border-radius: 14px; background: #f7f3ea; color: #294136; font-size: 13px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="kicker">OjaDeck</div>
+    <h1>Payment received</h1>
+    <p>Your payment has been received. You can return to WhatsApp; the merchant will process your order shortly.</p>
+    ${safeOrderReference ? `<div class="ref">Reference: ${safeOrderReference}</div>` : ""}
+  </main>
+</body>
+</html>`);
+});
+
 app.post("/api/auth/register", async (c) => {
     const { email, password, businessName, personalPhone } = await c.req.json();
     if (!email || !password || !businessName) {

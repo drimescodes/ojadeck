@@ -541,6 +541,10 @@ async function handleOrderConfirmed(
         logger.info({ orderId, txnRef, total: validatedOrder.total, corrected: validation.corrected }, "Order created, payment link sent");
     } catch (error: any) {
         logger.error({ err: error.message }, "Failed to generate payment link");
+        await db
+            .update(orders)
+            .set({ status: "failed" })
+            .where(eq(orders.id, orderId));
         await msg.reply(
             `${cleanMsg || confirmationMsg}\n\nI had trouble generating the payment link. Let me connect you with the seller to complete this order.`
         );
@@ -641,14 +645,12 @@ export async function handlePaymentSuccess(
         const verificationStatus = getVerificationStatus(verification);
 
         if (!verificationStatus || !isSuccessfulVerificationStatus(verificationStatus)) {
-            logger.warn({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction is not verified as successful");
-            return;
+            logger.warn({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification did not return a success status; continuing with signed webhook confirmation");
+        } else {
+            logger.info({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification checked");
         }
-
-        logger.info({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification checked");
     } catch (err: any) {
-        logger.warn({ transactionRef, err: err.message }, "Nomba transaction verification failed; leaving order pending");
-        return;
+        logger.warn({ transactionRef, err: err.message }, "Nomba transaction verification failed; continuing with signed webhook confirmation");
     }
 
     // Update order status
