@@ -181,7 +181,8 @@ async function handleOrderConfirmed(
     cleanMsg: string
 ): Promise<void> {
     const orderId = generateId();
-    const txnRef = `OJ_${Date.now()}_${orderId.substring(0, 8)}`;
+    const referenceSuffix = orderId.replace(/[^a-zA-Z0-9-]/g, "").substring(0, 8);
+    const txnRef = `OJ-${Date.now()}-${referenceSuffix}`;
 
     // Create order record
     await db.insert(orders).values({

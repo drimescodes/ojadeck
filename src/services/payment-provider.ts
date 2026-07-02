@@ -202,19 +202,17 @@ export async function initiatePayment(params: InitiatePaymentParams): Promise<st
  */
 export async function verifyTransaction(params: VerifyTransactionParams): Promise<any> {
     const token = await getAccessToken();
-    const reference = config.mode === "test"
-        ? params.orderReference
-        : params.transactionId || params.orderReference;
+    const reference = params.orderReference || params.transactionId;
 
     if (!reference) {
         throw new Error("Cannot verify Nomba transaction without the required reference.");
     }
 
-    const url = config.mode === "test"
-        ? new URL(`${config.baseUrl}/sandbox/checkout/transaction`)
+    const url = params.orderReference
+        ? new URL(`${config.baseUrl}/v1/checkout/transaction`)
         : new URL(`${config.baseUrl}/v1/transactions/accounts/single`);
 
-    if (config.mode === "test") {
+    if (params.orderReference) {
         url.searchParams.set("idType", "orderReference");
         url.searchParams.set("id", reference);
     } else {
