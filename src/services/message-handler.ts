@@ -71,6 +71,82 @@ function normalizeProductName(name: string): string {
         .replace(/\b(\w{4,})s\b/g, "$1");
 }
 
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseQuantityToken(value: string): number | null {
+    const normalized = value.toLowerCase();
+    const wordNumbers: Record<string, number> = {
+        one: 1,
+        two: 2,
+        three: 3,
+        four: 4,
+        five: 5,
+        six: 6,
+        seven: 7,
+        eight: 8,
+        nine: 9,
+        ten: 10,
+    };
+
+    if (/^\d{1,2}$/.test(normalized)) return Number(normalized);
+    return wordNumbers[normalized] ?? null;
+}
+
+function extractExplicitQuantityForProduct(customerMessage: string, productName: string): number | null {
+    const message = normalizeProductName(customerMessage);
+    const product = normalizeProductName(productName);
+    if (!message || !product) return null;
+
+    const qty = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
+    const productPattern = escapeRegex(product);
+    const patterns = [
+        new RegExp(`\\b${qty}\\s+(?:pieces?\\s+of\\s+)?${productPattern}\\b`),
+        new RegExp(`\\b${productPattern}\\s+(?:x\\s*)?${qty}\\b`),
+    ];
+
+    for (const pattern of patterns) {
+        const match = message.match(pattern);
+        const token = match?.[1];
+        if (!token) continue;
+
+        const parsed = parseQuantityToken(token);
+        if (parsed && parsed >= 1 && parsed <= 99) return parsed;
+    }
+
+    return null;
+}
+
+function extractReferencedQuantity(customerMessage: string): number | null {
+    const message = normalizeProductName(customerMessage);
+    if (!message) return null;
+
+    const qty = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
+    const patterns = [
+        new RegExp(`\\b(?:i\\s*(?:would|d|will)?\\s*)?(?:need|want|take|get|buy|order)\\s+${qty}\\b`),
+        new RegExp(`\\b${qty}\\s+(?:of\\s+)?(?:those|that|it|them|this|one|ones)\\b`),
+        new RegExp(`\\b(?:make\\s+it|just)\\s+${qty}\\b`),
+    ];
+
+    for (const pattern of patterns) {
+        const match = message.match(pattern);
+        const token = match?.[1];
+        if (!token) continue;
+
+        const parsed = parseQuantityToken(token);
+        if (parsed && parsed >= 1 && parsed <= 99) return parsed;
+    }
+
+    return null;
+}
+
+function isLikelyPublicPhoneNumber(phone?: string): boolean {
+    if (!phone) return false;
+    const digits = phone.replace(/\D/g, "");
+    return digits.length >= 10 && digits.length <= 15;
+}
+
 function isResetOrderIntent(message: string): boolean {
     return /\b(cancel|start over|start again|fresh order|new order|reset|discard|forget it|change order|different order)\b/i.test(message);
 }
@@ -189,7 +265,11 @@ async function handlePendingPaymentMessage(
     return "continue";
 }
 
-async function validateOrderAgainstCatalogue(sellerId: string, orderData: OrderData): Promise<OrderValidationResult> {
+async function validateOrderAgainstCatalogue(
+    sellerId: string,
+    orderData: OrderData,
+    customerMessage: string
+): Promise<OrderValidationResult> {
     const catalogue = await db.query.products.findMany({
         where: and(eq(products.sellerId, sellerId), eq(products.inStock, true)),
     });
@@ -207,12 +287,11 @@ async function validateOrderAgainstCatalogue(sellerId: string, orderData: OrderD
 
     for (const item of orderData.items) {
         const requestedName = normalizeProductName(String(item.name || ""));
-        const qty = Math.trunc(Number(item.qty));
 
-        if (!requestedName || !Number.isFinite(qty) || qty < 1 || qty > 99) {
+        if (!requestedName) {
             return {
                 ok: false,
-                message: "I couldn't confirm that quantity. Please tell me the item and quantity again.",
+                message: "I couldn't confirm that item. Please tell me the item and quantity again.",
             };
         }
 
@@ -226,6 +305,18 @@ async function validateOrderAgainstCatalogue(sellerId: string, orderData: OrderD
             return {
                 ok: false,
                 message: `I can only create payment links for items in the catalogue right now.\n\nAvailable items:\n${available}\n\nWhich one should I get for you?`,
+            };
+        }
+
+        const aiQty = Math.trunc(Number(item.qty));
+        const explicitQty = extractExplicitQuantityForProduct(customerMessage, matchedProduct.name)
+            ?? (orderData.items.length === 1 ? extractReferencedQuantity(customerMessage) : null);
+        const qty = explicitQty ?? aiQty;
+
+        if (!Number.isFinite(qty) || qty < 1 || qty > 99) {
+            return {
+                ok: false,
+                message: "I couldn't confirm that quantity. Please tell me the item and quantity again.",
             };
         }
 
@@ -293,7 +384,16 @@ export async function handleIncomingMessage(
         // Ignore status broadcasts
         if (msg.from === "status@broadcast") return;
 
-        const customerPhone = phoneFromWaId(msg.from);
+        let contact: any | null = null;
+        try {
+            contact = await msg.getContact();
+        } catch {
+            // ignore
+        }
+
+        const customerPhone = contact?.number
+            ? `+${String(contact.number).replace(/\D/g, "")}`
+            : phoneFromWaId(msg.from);
         const customerMessage = msg.body;
 
         if (!customerMessage || customerMessage.trim() === "") return;
@@ -313,11 +413,8 @@ export async function handleIncomingMessage(
 
         // Get or create customer
         let contactName: string | undefined;
-        try {
-            const contact = await msg.getContact();
+        if (contact) {
             contactName = contact.pushname || contact.name || undefined;
-        } catch {
-            // ignore
         }
         const customer = await getOrCreateCustomer(customerPhone, sellerId, contactName);
 
@@ -347,7 +444,7 @@ export async function handleIncomingMessage(
 
         if (orderData) {
             // ─── Order confirmed flow ────────────────────────────
-            await handleOrderConfirmed(sellerId, { ...customer, phone: customerPhone }, conversation, orderData, msg, cleanMsg);
+            await handleOrderConfirmed(sellerId, { ...customer, phone: customerPhone }, conversation, orderData, customerMessage, msg, cleanMsg);
         } else if (escalation) {
             // ─── Escalation flow ─────────────────────────────────
             await handleEscalation(sellerId, { ...customer, phone: customerPhone }, escalation, msg, cleanMsg);
@@ -383,10 +480,11 @@ async function handleOrderConfirmed(
     customer: { id: string; name: string | null; phone: string },
     conversation: { id: string; state: string },
     orderData: OrderData,
+    customerMessage: string,
     msg: any,
     cleanMsg: string
 ): Promise<void> {
-    const validation = await validateOrderAgainstCatalogue(sellerId, orderData);
+    const validation = await validateOrderAgainstCatalogue(sellerId, orderData, customerMessage);
     if (!validation.ok) {
         await updateConversationState(conversation.id, "awaiting_order");
         await msg.reply(validation.message);
@@ -471,7 +569,9 @@ async function handleEscalation(
     });
 
     if (seller?.personalPhone && sessionManagerRef) {
-        const profileUrl = customer.phone ? `https://wa.me/${customer.phone.replace(/\D/g, "")}` : null;
+        const profileUrl = isLikelyPublicPhoneNumber(customer.phone)
+            ? `https://wa.me/${customer.phone!.replace(/\D/g, "")}`
+            : null;
         const customerLine = profileUrl
             ? `${customer.name || customer.phone}\nProfile: ${profileUrl}`
             : customer.name || "Unknown";
@@ -482,6 +582,12 @@ async function handleEscalation(
             if (client) {
                 const sellerWaId = seller.personalPhone.replace("+", "") + "@c.us";
                 await client.sendMessage(sellerWaId, sellerNotifyMsg);
+                try {
+                    const contact = await msg.getContact();
+                    await client.sendMessage(sellerWaId, contact);
+                } catch (err: any) {
+                    logger.warn({ err: err.message }, "Failed to send customer contact card for escalation");
+                }
                 logger.info({ sellerId, personalPhone: seller.personalPhone }, "Seller notified of escalation");
             }
         } catch (err: any) {

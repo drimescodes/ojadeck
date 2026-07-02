@@ -102,6 +102,10 @@ function accountIdForApiCalls(): string {
     return config.subAccountId || config.parentAccountId;
 }
 
+function parentAccountIdForApiCalls(): string {
+    return config.parentAccountId;
+}
+
 function amountForCheckout(kobo: number): string | number {
     if (NOMBA_AMOUNT_UNIT === "kobo") {
         return kobo;
@@ -174,7 +178,7 @@ export async function initiatePayment(params: InitiatePaymentParams): Promise<st
         headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
-            accountId: accountIdForApiCalls(),
+            accountId: parentAccountIdForApiCalls(),
         },
         body: JSON.stringify({
             order: {
@@ -183,6 +187,7 @@ export async function initiatePayment(params: InitiatePaymentParams): Promise<st
                 currency: "NGN",
                 customerEmail: email,
                 callbackUrl,
+                accountId: accountIdForApiCalls(),
             },
         }),
     });
@@ -223,7 +228,7 @@ export async function verifyTransaction(params: VerifyTransactionParams): Promis
         method: "GET",
         headers: {
             Authorization: `Bearer ${token}`,
-            accountId: accountIdForApiCalls(),
+            accountId: parentAccountIdForApiCalls(),
         },
     });
 

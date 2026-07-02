@@ -187,15 +187,17 @@ export default function Catalogue() {
             )}
 
             {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#15231d]/45 px-4 py-6 backdrop-blur-sm" onClick={() => setShowModal(false)}>
-                    <div className="w-full max-w-xl rounded-[30px] border border-[#e8decc] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(21,35,29,0.18)] md:p-7" onClick={(e) => e.stopPropagation()}>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
-                            {editing ? 'Edit Product' : 'Add Product'}
+                <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#15231d]/45 px-4 py-4 backdrop-blur-sm sm:py-8" onClick={() => setShowModal(false)}>
+                    <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[30px] border border-[#e8decc] bg-[#fffdf8] shadow-[0_24px_70px_rgba(21,35,29,0.18)] sm:max-h-[calc(100vh-4rem)]" onClick={(e) => e.stopPropagation()}>
+                        <div className="shrink-0 px-6 pt-6 md:px-7 md:pt-7">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
+                                {editing ? 'Edit Product' : 'Add Product'}
+                            </div>
+                            <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d] sm:text-3xl">
+                                {editing ? 'Refine this listing' : 'Create a sellable product card'}
+                            </h2>
                         </div>
-                        <h2 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#18231d]">
-                            {editing ? 'Refine this listing' : 'Create a sellable product card'}
-                        </h2>
-                        <div className="mt-6 space-y-5">
+                        <div className="mt-5 min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-5 md:px-7">
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-[#294136]">Product Name</label>
                                 <input
@@ -247,11 +249,11 @@ export default function Catalogue() {
                             <div className="space-y-3">
                                 <label className="text-sm font-semibold text-[#294136]">Product Image</label>
                                 {imagePreview ? (
-                                    <div className="aspect-[4/3] overflow-hidden rounded-2xl border border-[#ddd4c3] bg-[#f7f3ea]">
+                                    <div className="h-36 overflow-hidden rounded-2xl border border-[#ddd4c3] bg-[#f7f3ea] sm:h-44">
                                         <img src={imagePreview} alt="Product preview" className="h-full w-full object-cover" />
                                     </div>
                                 ) : (
-                                    <div className="flex aspect-[4/3] items-center justify-center rounded-2xl border border-dashed border-[#d8cfbc] bg-[#f7f3ea] text-sm font-semibold text-[#7b6b48]">
+                                    <div className="flex h-28 items-center justify-center rounded-2xl border border-dashed border-[#d8cfbc] bg-[#f7f3ea] text-sm font-semibold text-[#7b6b48] sm:h-32">
                                         No image selected
                                     </div>
                                 )}
@@ -266,7 +268,7 @@ export default function Catalogue() {
                                 </p>
                             </div>
                         </div>
-                        <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                        <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-[#eee5d4] bg-[#fffdf8] px-6 py-4 sm:flex-row sm:justify-end md:px-7">
                             <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136] transition hover:border-[#b8ac95] hover:bg-[#f1ebdf]" onClick={() => setShowModal(false)}>
                                 Cancel
                             </button>

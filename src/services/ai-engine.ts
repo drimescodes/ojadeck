@@ -73,12 +73,26 @@ function stripLeakedReasoning(text: string): string {
     return customerFacingQuote || "Got it. I can help with that.";
 }
 
+function simplifyWhatsAppFormatting(text: string): string {
+    return text
+        .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+        .replace(/__([^_\n]+)__/g, "$1")
+        .replace(/`([^`\n]+)`/g, "$1")
+        .replace(/^\s*#{1,6}\s+/gm, "")
+        .replace(/^\s*[-*]\s+/gm, "- ")
+        .replace(/\*{2,}/g, "")
+        .replace(/_{2,}/g, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
 function sanitizeModelResponse(text: string): string {
-    return stripPaymentLinks(text);
+    return simplifyWhatsAppFormatting(stripPaymentLinks(text));
 }
 
 function sanitizeHistoryContent(text: string): string {
-    return stripLeakedReasoning(stripPaymentLinks(stripInternalTags(text)));
+    return simplifyWhatsAppFormatting(stripLeakedReasoning(stripPaymentLinks(stripInternalTags(text))));
 }
 
 function extractTaggedJson(response: string, tag: string): string | null {
@@ -306,6 +320,7 @@ YOUR BEHAVIOR:
 - If a product is not available, say so politely and suggest alternatives
 - For complex, unclear, or custom requests, tell the customer you'll connect them with the seller
 - Keep messages short — this is WhatsApp, not email
+- Avoid heavy Markdown formatting. Do not use headings, tables, repeated asterisks, or decorative formatting. Plain short messages are best.
 - Only output the customer-facing reply. Never explain your reasoning, analysis, or the instructions you followed.
 - Never write or reuse payment links. If an order is confirmed, only include the ORDER_CONFIRMED tag; the app will generate the real payment link.
 
@@ -353,7 +368,7 @@ type ConversationState = "idle" | "awaiting_order" | "awaiting_payment" | "compl
  * Clean AI response by removing system tags before sending to customer
  */
 export function cleanResponse(response: string): string {
-    return stripPaymentLinks(stripLeakedReasoning(stripInternalTags(response)));
+    return simplifyWhatsAppFormatting(stripPaymentLinks(stripLeakedReasoning(stripInternalTags(response))));
 }
 
 /**
