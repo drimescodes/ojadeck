@@ -31,6 +31,108 @@ const OPENROUTER_FALLBACK_MODELS = (process.env.OPENROUTER_FALLBACK_MODELS || DE
     .map((model) => model.trim())
     .filter(Boolean);
 
+function stripPaymentLinks(text: string): string {
+    return text
+        .replace(/💳\s*\*Pay here:\*\s*https:\/\/pay\.nomba\.com\/\S+/gi, "")
+        .replace(/https:\/\/pay\.nomba\.com\/\S+/gi, "")
+        .replace(/Click the link above to complete your payment of [^\n.]+\.?/gi, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function stripInternalTags(text: string): string {
+    return text
+        .replace(/\[ORDER_CONFIRMED:[\s\S]*$/g, "")
+        .replace(/\[ESCALATE:\s*".*?"\]/gs, "")
+        .trim();
+}
+
+function stripLeakedReasoning(text: string): string {
+    const customerFacingMarkers = [
+        /(?:Final answer|Final response|Customer response):\s*/i,
+        /(?:So final answer will be|So we can say):\s*/i,
+    ];
+
+    for (const marker of customerFacingMarkers) {
+        const match = text.match(marker);
+        if (match?.index !== undefined) {
+            return text.slice(match.index + match[0].length).trim().replace(/^"+|"+$/g, "").trim();
+        }
+    }
+
+    const leakedReasoning = /^(We need to|We should|The user|The customer|According to|Need to|Thus we need|So we need|But careful:|The spec says|Make sure)/i;
+    if (!leakedReasoning.test(text)) return text;
+
+    const quotedBlocks = [...text.matchAll(/"([^"\n]{12,500})"/g)].map((match) => (match[1] || "").trim());
+    const customerFacingQuote = quotedBlocks.reverse().find((quote) =>
+        !leakedReasoning.test(quote)
+        && !quote.includes("[ORDER_CONFIRMED:")
+        && !quote.includes("[ESCALATE:")
+    );
+
+    return customerFacingQuote || "Got it. I can help with that.";
+}
+
+function sanitizeModelResponse(text: string): string {
+    return stripPaymentLinks(text);
+}
+
+function sanitizeHistoryContent(text: string): string {
+    return stripLeakedReasoning(stripPaymentLinks(stripInternalTags(text)));
+}
+
+function extractTaggedJson(response: string, tag: string): string | null {
+    const marker = `[${tag}:`;
+    let searchIndex = 0;
+    let lastJson: string | null = null;
+
+    while (searchIndex < response.length) {
+        const tagIndex = response.indexOf(marker, searchIndex);
+        if (tagIndex === -1) break;
+
+        const jsonStart = response.indexOf("{", tagIndex + marker.length);
+        if (jsonStart === -1) break;
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+
+        for (let index = jsonStart; index < response.length; index++) {
+            const char = response[index];
+
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+
+            if (char === "\\") {
+                escaped = true;
+                continue;
+            }
+
+            if (char === "\"") {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString) continue;
+
+            if (char === "{") depth++;
+            if (char === "}") depth--;
+
+            if (depth === 0) {
+                lastJson = response.slice(jsonStart, index + 1);
+                searchIndex = index + 1;
+                break;
+            }
+        }
+
+        if (searchIndex <= tagIndex) break;
+    }
+
+    return lastJson;
+}
+
 async function withTimeout<T>(label: string, operation: () => Promise<T>): Promise<T> {
     let timeout: Timer | null = null;
 
@@ -187,6 +289,8 @@ YOUR BEHAVIOR:
 - If a product is not available, say so politely and suggest alternatives
 - For complex, unclear, or custom requests, tell the customer you'll connect them with the seller
 - Keep messages short — this is WhatsApp, not email
+- Only output the customer-facing reply. Never explain your reasoning, analysis, or the instructions you followed.
+- Never write or reuse payment links. If an order is confirmed, only include the ORDER_CONFIRMED tag; the app will generate the real payment link.
 
 ORDER CONFIRMATION:
 When the customer explicitly confirms they want to proceed with an order, you MUST include this exact tag at the END of your message (the system parses this automatically):
@@ -208,8 +312,7 @@ Do NOT include any internal notes, metadata, or system text in your visible mess
 export function parseOrderConfirmation(
     response: string
 ): { items: { name: string; qty: number; price: number }[]; total: number } | null {
-    const match = response.match(/\[ORDER_CONFIRMED:\s*(\{.*\})\]/s);
-    const payload = match?.[1];
+    const payload = extractTaggedJson(response, "ORDER_CONFIRMED");
     if (!payload) return null;
     try {
         return JSON.parse(payload);
@@ -233,10 +336,7 @@ type ConversationState = "idle" | "awaiting_order" | "awaiting_payment" | "compl
  * Clean AI response by removing system tags before sending to customer
  */
 export function cleanResponse(response: string): string {
-    return response
-        .replace(/\[ORDER_CONFIRMED:\s*\{.*\}\]/s, "")
-        .replace(/\[ESCALATE:\s*".*?"\]/s, "")
-        .trim();
+    return stripPaymentLinks(stripLeakedReasoning(stripInternalTags(response)));
 }
 
 /**
@@ -282,7 +382,7 @@ async function loadHistory(conversationId: string, limit = 20): Promise<ChatCont
 
     return rows.map((m) => ({
         role: m.role === "customer" ? "user" : "model",
-        parts: [{ text: m.content }],
+        parts: [{ text: m.role === "assistant" ? sanitizeHistoryContent(m.content) : m.content }],
     }));
 }
 
@@ -356,12 +456,12 @@ export async function generateAIResponse(
     let model = GEMINI_MODEL;
 
     try {
-        response = await generateGeminiResponse(systemPrompt, contents);
+        response = sanitizeModelResponse(await generateGeminiResponse(systemPrompt, contents));
     } catch (err: any) {
         logger.warn({ sellerId, conversationId, model: GEMINI_MODEL, err: err?.message || String(err) }, "Gemini generation failed; trying OpenRouter fallback");
 
         const fallback = await generateOpenRouterResponse(systemPrompt, contents);
-        response = fallback.text;
+        response = sanitizeModelResponse(fallback.text);
         provider = "openrouter";
         model = fallback.model;
     }
