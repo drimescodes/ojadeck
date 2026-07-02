@@ -10,8 +10,148 @@ type ChatContent = {
     parts: { text: string }[];
 };
 
+type OpenRouterMessage = {
+    role: "system" | "user" | "assistant";
+    content: string;
+};
+
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || 12000);
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL || process.env.APP_URL || "https://ojadeck.drimes.dev";
+const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "OjaDeck";
+const DEFAULT_OPENROUTER_FALLBACK_MODELS = [
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+];
+const OPENROUTER_FALLBACK_MODELS = (process.env.OPENROUTER_FALLBACK_MODELS || DEFAULT_OPENROUTER_FALLBACK_MODELS.join(","))
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+
+async function withTimeout<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    let timeout: Timer | null = null;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+            reject(new Error(`${label} timed out after ${AI_REQUEST_TIMEOUT_MS}ms`));
+        }, AI_REQUEST_TIMEOUT_MS);
+    });
+
+    try {
+        return await Promise.race([operation(), timeoutPromise]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+    }
+}
+
+function extractResponseText(response: unknown): string | undefined {
+    if (typeof response === "string") return response;
+    if (Array.isArray(response)) {
+        return response
+            .map((part) => {
+                if (typeof part === "string") return part;
+                if (part && typeof part === "object" && "text" in part) return String((part as { text: unknown }).text);
+                return "";
+            })
+            .filter(Boolean)
+            .join("\n");
+    }
+
+    return undefined;
+}
+
+function ensureResponseText(response: unknown, provider: string, model: string): string {
+    const text = extractResponseText(response)?.trim();
+    if (!text) {
+        throw new Error(`${provider} model ${model} returned an empty response`);
+    }
+    return text;
+}
+
+function toOpenRouterMessages(systemPrompt: string, contents: ChatContent[]): OpenRouterMessage[] {
+    return [
+        { role: "system", content: systemPrompt },
+        ...contents.map((content) => ({
+            role: content.role === "model" ? "assistant" as const : "user" as const,
+            content: content.parts.map((part) => part.text).join("\n"),
+        })),
+    ];
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+    const text = await response.text();
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        throw new Error(`AI provider returned a non-JSON response (${response.status}): ${text.substring(0, 300)}`);
+    }
+}
+
+async function generateGeminiResponse(systemPrompt: string, contents: ChatContent[]): Promise<string> {
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error("GEMINI_API_KEY is not configured");
+    }
+
+    return withTimeout(`Gemini ${GEMINI_MODEL}`, async () => {
+        const result = await genAI.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: contents as any,
+            config: {
+                systemInstruction: systemPrompt,
+            },
+        });
+
+        return ensureResponseText(result.text, "Gemini", GEMINI_MODEL);
+    });
+}
+
+async function generateOpenRouterResponse(systemPrompt: string, contents: ChatContent[]): Promise<{ text: string; model: string }> {
+    if (!OPENROUTER_API_KEY) {
+        throw new Error("OPENROUTER_API_KEY is not configured");
+    }
+
+    let lastError: unknown = null;
+    const messages = toOpenRouterMessages(systemPrompt, contents);
+
+    for (const model of OPENROUTER_FALLBACK_MODELS) {
+        try {
+            const text = await withTimeout(`OpenRouter ${model}`, async () => {
+                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": OPENROUTER_SITE_URL,
+                        "X-Title": OPENROUTER_APP_NAME,
+                    },
+                    body: JSON.stringify({
+                        model,
+                        messages,
+                        temperature: 0.7,
+                        max_tokens: 700,
+                    }),
+                });
+
+                const data = await readJsonResponse<any>(response);
+                if (!response.ok) {
+                    throw new Error(data?.error?.message || `OpenRouter request failed with ${response.status}`);
+                }
+
+                return ensureResponseText(data?.choices?.[0]?.message?.content, "OpenRouter", model);
+            });
+
+            return { text, model };
+        } catch (err: any) {
+            lastError = err;
+            logger.warn({ model, err: err?.message || String(err) }, "OpenRouter fallback model failed");
+        }
+    }
+
+    throw new Error(`All OpenRouter fallback models failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
 
 /**
  * Build a system prompt for a specific seller, injecting their catalogue.
@@ -211,17 +351,22 @@ export async function generateAIResponse(
         },
     ];
 
-    const result = await genAI.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: contents as any,
-        config: {
-            systemInstruction: systemPrompt,
-        },
-    });
+    let response: string;
+    let provider = "gemini";
+    let model = GEMINI_MODEL;
 
-    const response = result.text || "";
+    try {
+        response = await generateGeminiResponse(systemPrompt, contents);
+    } catch (err: any) {
+        logger.warn({ sellerId, conversationId, model: GEMINI_MODEL, err: err?.message || String(err) }, "Gemini generation failed; trying OpenRouter fallback");
 
-    logger.debug({ sellerId, conversationId, response: response.substring(0, 100) }, "AI response generated");
+        const fallback = await generateOpenRouterResponse(systemPrompt, contents);
+        response = fallback.text;
+        provider = "openrouter";
+        model = fallback.model;
+    }
+
+    logger.debug({ sellerId, conversationId, provider, model, response: response.substring(0, 100) }, "AI response generated");
 
     return response;
 }

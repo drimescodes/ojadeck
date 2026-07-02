@@ -151,6 +151,11 @@ APP_URL=https://ojadeck.drimes.dev
 DB_PATH=/home/nomba/ojadeck/data/app.db
 JWT_SECRET=<server-generated>
 GEMINI_MODEL=gemini-2.5-flash
+AI_REQUEST_TIMEOUT_MS=12000
+OPENROUTER_API_KEY=
+OPENROUTER_FALLBACK_MODELS=google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free,nvidia/nemotron-3-nano-30b-a3b:free
+OPENROUTER_SITE_URL=https://ojadeck.drimes.dev
+OPENROUTER_APP_NAME=OjaDeck
 PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 WA_HEADLESS=true
 WA_INIT_TIMEOUT_MS=120000
@@ -225,6 +230,7 @@ sudo journalctl -u caddy -f
 
    ```env
    GEMINI_API_KEY=
+   OPENROUTER_API_KEY=
    NOMBA_MODE=test
    NOMBA_TEST_CLIENT_ID=
    NOMBA_TEST_PRIVATE_KEY=

@@ -25,6 +25,8 @@ bun run dev
 
 Set `NOMBA_MODE=test` for sandbox credentials or `NOMBA_MODE=live` for production credentials. Restart the backend after changing the mode.
 
+Gemini is the primary AI provider. Set `OPENROUTER_API_KEY` to enable free-model fallback when Gemini is unavailable.
+
 For the dashboard dev server:
 
 ```bash
