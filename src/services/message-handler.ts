@@ -26,10 +26,16 @@ export function setSessionManager(sm: SessionManager): void {
 }
 
 function getVerificationStatus(verification: any): string | null {
+    if (verification?.data?.success === true) {
+        return "success";
+    }
+
     const candidates = [
         verification?.data?.status,
         verification?.data?.transactionStatus,
         verification?.data?.paymentStatus,
+        verification?.data?.message,
+        verification?.data?.transactionDetails?.statusCode,
         verification?.data?.transaction?.status,
         verification?.data?.transaction?.transactionStatus,
         verification?.data?.transaction?.paymentStatus,
@@ -42,7 +48,7 @@ function getVerificationStatus(verification: any): string | null {
 }
 
 function isSuccessfulVerificationStatus(status: string): boolean {
-    return ["success", "successful", "paid", "completed", "approved"].includes(status.toLowerCase());
+    return ["success", "successful", "paid", "completed", "approved", "payment successful"].includes(status.toLowerCase());
 }
 
 /**
