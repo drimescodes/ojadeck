@@ -10,7 +10,7 @@ import {
     saveMessage,
     updateConversationState,
 } from "./ai-engine";
-import { initiatePayment } from "./payment-provider";
+import { getNombaAmountUnit, initiatePayment, verifyTransaction } from "./payment-provider";
 import { generateId, phoneFromWaId, formatNaira } from "../utils/helpers";
 import logger from "../utils/logger";
 import type { Client } from "whatsapp-web.js";
@@ -23,6 +23,26 @@ let sessionManagerRef: SessionManager | null = null;
 
 export function setSessionManager(sm: SessionManager): void {
     sessionManagerRef = sm;
+}
+
+function getVerificationStatus(verification: any): string | null {
+    const candidates = [
+        verification?.data?.status,
+        verification?.data?.transactionStatus,
+        verification?.data?.paymentStatus,
+        verification?.data?.transaction?.status,
+        verification?.data?.transaction?.transactionStatus,
+        verification?.data?.transaction?.paymentStatus,
+        verification?.status,
+        verification?.transactionStatus,
+    ];
+
+    const status = candidates.find((value) => typeof value === "string" && value.trim().length > 0);
+    return status ? status.trim() : null;
+}
+
+function isSuccessfulVerificationStatus(status: string): boolean {
+    return ["success", "successful", "paid", "completed", "approved"].includes(status.toLowerCase());
 }
 
 /**
@@ -155,7 +175,7 @@ async function handleOrderConfirmed(
     cleanMsg: string
 ): Promise<void> {
     const orderId = generateId();
-    const txnRef = `SQ_${Date.now()}_${orderId.substring(0, 8)}`;
+    const txnRef = `OJ_${Date.now()}_${orderId.substring(0, 8)}`;
 
     // Create order record
     await db.insert(orders).values({
@@ -244,7 +264,8 @@ async function handleEscalation(
  */
 export async function handlePaymentSuccess(
     transactionRef: string,
-    amountPaid: number
+    amountPaid: number,
+    options: { transactionId?: string | null; currency?: string | null } = {}
 ): Promise<void> {
     // Find the order
     const order = await db.query.orders.findFirst({
@@ -258,6 +279,38 @@ export async function handlePaymentSuccess(
 
     if (order.status === "paid") {
         logger.info({ transactionRef }, "Duplicate payment webhook ignored");
+        return;
+    }
+
+    const paidAmountKobo = getNombaAmountUnit() === "kobo"
+        ? Math.round(Number(amountPaid))
+        : Math.round(Number(amountPaid) * 100);
+
+    if (paidAmountKobo !== order.totalAmount) {
+        logger.warn({ transactionRef, paidAmountKobo, expectedAmountKobo: order.totalAmount }, "Payment amount mismatch");
+        return;
+    }
+
+    if (options.currency && options.currency !== "NGN") {
+        logger.warn({ transactionRef, currency: options.currency }, "Payment currency mismatch");
+        return;
+    }
+
+    try {
+        const verification = await verifyTransaction({
+            transactionId: options.transactionId,
+            orderReference: transactionRef,
+        });
+        const verificationStatus = getVerificationStatus(verification);
+
+        if (!verificationStatus || !isSuccessfulVerificationStatus(verificationStatus)) {
+            logger.warn({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction is not verified as successful");
+            return;
+        }
+
+        logger.info({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification checked");
+    } catch (err: any) {
+        logger.warn({ transactionRef, err: err.message }, "Nomba transaction verification failed; leaving order pending");
         return;
     }
 

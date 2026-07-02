@@ -2,7 +2,7 @@
 
 OjaDeck is a WhatsApp commerce control deck for Nigerian small businesses. It lets merchants connect a WhatsApp number, manage a product catalogue, use AI to answer customer DMs, collect orders, and track payment status from one dashboard.
 
-This is a provider-neutral scaffold prepared for the Nomba Forward Hackathon 2026. The Nomba-specific payment integration should be implemented during the official build sprint.
+This is the OjaDeck base for the Nomba Forward Hackathon 2026. The backend can create Nomba Checkout links, verify Nomba webhook signatures, and re-check transactions before marking orders paid.
 
 ## Current Features
 
@@ -11,8 +11,8 @@ This is a provider-neutral scaffold prepared for the Nomba Forward Hackathon 202
 - WhatsApp QR linking and session status
 - AI-assisted customer message handling
 - Order creation and dashboard stats
-- Generic payment-provider client placeholder
-- Generic payment webhook endpoint at `POST /api/webhooks/payments`
+- Nomba Checkout payment links
+- Nomba payment webhook endpoint at `POST /api/webhooks/payments`
 
 ## Run Locally
 
@@ -22,6 +22,8 @@ cd dashboard && bun install && cd ..
 cp .env.example .env
 bun run dev
 ```
+
+Set `NOMBA_MODE=test` for sandbox credentials or `NOMBA_MODE=live` for production credentials. Restart the backend after changing the mode.
 
 For the dashboard dev server:
 
@@ -40,9 +42,7 @@ cd dashboard
 
 ## Hackathon Build-Sprint Work
 
-- Add Nomba checkout client
-- Add webhook signature verification
-- Re-verify transactions before marking orders paid
-- Validate paid amount and currency against stored orders
+- Test checkout creation with real hackathon credentials
+- Confirm webhook delivery after Nomba's update window
 - Validate AI-generated order items against the catalogue
 - Add architecture and security notes for submission

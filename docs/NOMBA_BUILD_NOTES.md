@@ -43,6 +43,7 @@ Hackathon credentials include a parent account ID and a sub-account ID.
 
 Reported by participants and organizers:
 
+- OjaDeck switches rails with `NOMBA_MODE=test` or `NOMBA_MODE=live`. Changing the mode requires restarting the backend process.
 - Sandbox virtual account limits were initially low and later lifted for testing.
 - Some sandbox flows appear incomplete or unreliable, including card tokenization and direct debit.
 - Production credentials may be enabled for hackathon testing, but production can involve real money. Be deliberate before using live payment rails.
@@ -53,9 +54,9 @@ Reported by participants and organizers:
 
 1. Host OjaDeck at `ojadeck.drimes.dev` and confirm `/api/health` is reachable over HTTPS.
 2. Submit `https://ojadeck.drimes.dev/api/webhooks/payments` to the Nomba webhook form.
-3. Add Nomba auth/token issuance to the backend.
-4. Replace the generic payment provider with Nomba checkout order creation.
-5. Add webhook signature verification.
-6. Re-verify transactions before marking orders paid.
-7. Validate paid amount, currency, and order reference against stored orders.
+3. Test Nomba auth/token issuance from the backend.
+4. Test Nomba checkout order creation.
+5. Confirm webhook signature verification with a real delivered webhook.
+6. Confirm transaction verification before marking orders paid.
+7. Validate AI-generated order items against the seller catalogue before payment creation.
 8. Add an architecture/security note for the progress and final submissions.
