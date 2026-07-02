@@ -79,7 +79,19 @@ app.post("/api/auth/register", async (c) => {
     await db.insert(sellers).values({ id, email, password: hashedPassword, businessName, personalPhone: personalPhone || null });
 
     const token = jwt.sign({ sellerId: id, email });
-    return c.json({ seller: { id, email, businessName, personalPhone, autoReplyEnabled: true }, token });
+    return c.json({
+        seller: {
+            id,
+            email,
+            businessName,
+            personalPhone,
+            autoReplyEnabled: true,
+            aiTone: null,
+            aiBusinessContext: null,
+            aiInstructions: null,
+        },
+        token,
+    });
 });
 
 app.post("/api/auth/login", async (c) => {
@@ -97,6 +109,9 @@ app.post("/api/auth/login", async (c) => {
             id: seller.id, email: seller.email, businessName: seller.businessName,
             personalPhone: seller.personalPhone, whatsappConnected: seller.whatsappConnected,
             autoReplyEnabled: seller.autoReplyEnabled,
+            aiTone: seller.aiTone,
+            aiBusinessContext: seller.aiBusinessContext,
+            aiInstructions: seller.aiInstructions,
         },
         token,
     });
@@ -117,16 +132,22 @@ protectedApi.get("/sellers/me", async (c) => {
         id: seller.id, email: seller.email, businessName: seller.businessName,
         personalPhone: seller.personalPhone, whatsappConnected: seller.whatsappConnected,
         autoReplyEnabled: seller.autoReplyEnabled,
+        aiTone: seller.aiTone,
+        aiBusinessContext: seller.aiBusinessContext,
+        aiInstructions: seller.aiInstructions,
     });
 });
 
 protectedApi.put("/sellers/me", async (c) => {
     const sellerId = c.get("sellerId" as never) as string;
-    const { businessName, personalPhone, autoReplyEnabled } = await c.req.json();
+    const { businessName, personalPhone, autoReplyEnabled, aiTone, aiBusinessContext, aiInstructions } = await c.req.json();
     await db.update(sellers).set({
         ...(businessName && { businessName }),
         ...(personalPhone !== undefined && { personalPhone }),
         ...(autoReplyEnabled !== undefined && { autoReplyEnabled }),
+        ...(aiTone !== undefined && { aiTone: aiTone?.trim() || null }),
+        ...(aiBusinessContext !== undefined && { aiBusinessContext: aiBusinessContext?.trim() || null }),
+        ...(aiInstructions !== undefined && { aiInstructions: aiInstructions?.trim() || null }),
     }).where(eq(sellers.id, sellerId));
     return c.json({ success: true });
 });
@@ -135,6 +156,9 @@ protectedApi.route("/products", productsRouter);
 protectedApi.route("/orders", ordersRouter);
 protectedApi.route("/whatsapp", createWhatsAppRoutes(sessionManager));
 app.route("/api", protectedApi);
+
+// ─── Uploaded product media ─────────────────────────────
+app.use("/uploads/*", serveStatic({ root: "./" }));
 
 // ─── Serve dashboard static files ────────────────────────
 app.use("/*", serveStatic({ root: "./dashboard/dist" }));

@@ -14,6 +14,9 @@ export function migrate(): void {
       password TEXT NOT NULL,
       business_name TEXT NOT NULL,
       personal_phone TEXT,
+      ai_tone TEXT,
+      ai_business_context TEXT,
+      ai_instructions TEXT,
       whatsapp_connected INTEGER DEFAULT 0,
       auto_reply_enabled INTEGER DEFAULT 1,
       created_at INTEGER DEFAULT (unixepoch())
@@ -25,6 +28,7 @@ export function migrate(): void {
       name TEXT NOT NULL,
       description TEXT,
       price INTEGER NOT NULL,
+      image_url TEXT,
       in_stock INTEGER DEFAULT 1,
       created_at INTEGER DEFAULT (unixepoch())
     );
@@ -83,6 +87,30 @@ export function migrate(): void {
   if (!sellerColumns.some((column) => column.name === "auto_reply_enabled")) {
     sqlite.exec(`ALTER TABLE sellers ADD COLUMN auto_reply_enabled INTEGER DEFAULT 1;`);
     logger.info("Added sellers.auto_reply_enabled column");
+  }
+
+  if (!sellerColumns.some((column) => column.name === "ai_tone")) {
+    sqlite.exec(`ALTER TABLE sellers ADD COLUMN ai_tone TEXT;`);
+    logger.info("Added sellers.ai_tone column");
+  }
+
+  if (!sellerColumns.some((column) => column.name === "ai_business_context")) {
+    sqlite.exec(`ALTER TABLE sellers ADD COLUMN ai_business_context TEXT;`);
+    logger.info("Added sellers.ai_business_context column");
+  }
+
+  if (!sellerColumns.some((column) => column.name === "ai_instructions")) {
+    sqlite.exec(`ALTER TABLE sellers ADD COLUMN ai_instructions TEXT;`);
+    logger.info("Added sellers.ai_instructions column");
+  }
+
+  const productColumns = sqlite
+    .prepare(`PRAGMA table_info(products)`)
+    .all() as { name: string }[];
+
+  if (!productColumns.some((column) => column.name === "image_url")) {
+    sqlite.exec(`ALTER TABLE products ADD COLUMN image_url TEXT;`);
+    logger.info("Added products.image_url column");
   }
 
   const orderColumns = sqlite

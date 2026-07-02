@@ -2,6 +2,8 @@
 
 Last updated: 2026-07-02
 
+Note: latest local changes for AI training, product image uploads, catalogue validation, pending-order reset, and escalation profile links are not deployed until pushed and pulled by the GitHub Actions workflow.
+
 ## Current Public URLs
 
 Application:
@@ -107,6 +109,14 @@ Dashboard production build exists at:
 ```text
 /home/nomba/ojadeck/dashboard/dist
 ```
+
+Product uploads, once deployed, are stored under:
+
+```text
+/home/nomba/ojadeck/uploads/products
+```
+
+The `uploads/` directory is runtime state and is ignored by git.
 
 ## Systemd Service
 
@@ -217,6 +227,7 @@ sudo journalctl -u caddy -f
 10. Created and started `ojadeck.service`.
 11. Configured Caddy reverse proxy.
 12. Verified HTTPS health endpoint.
+13. Added GitHub Actions push-to-deploy workflow after initial manual deployment.
 
 ## Next Steps
 
@@ -244,7 +255,22 @@ sudo journalctl -u caddy -f
    NOMBA_AMOUNT_UNIT=naira
    ```
 
-3. Test the Nomba client end-to-end:
+3. After pushing local changes, confirm migrations add these columns on server restart:
+
+   ```text
+   sellers.ai_tone
+   sellers.ai_business_context
+   sellers.ai_instructions
+   products.image_url
+   ```
+
+4. Test product image upload on the hosted dashboard and confirm images load from:
+
+   ```text
+   https://ojadeck.drimes.dev/uploads/products/...
+   ```
+
+5. Test the Nomba client end-to-end:
 
    - token issuance/auth
    - checkout order creation
@@ -252,9 +278,7 @@ sudo journalctl -u caddy -f
    - webhook signature verification
    - amount/currency/reference validation
 
-4. Add a deploy script and GitHub Actions workflow for push-to-deploy.
-
-5. Rotate the exposed SSH key and use a fresh deploy-only key for automation.
+6. Rotate the exposed SSH key and use a fresh deploy-only key for automation.
 
 ## Recommended Push-to-Deploy Plan
 

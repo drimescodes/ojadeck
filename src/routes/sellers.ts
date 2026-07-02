@@ -77,6 +77,9 @@ sellersRouter.post("/login", async (c) => {
                 businessName: seller.businessName,
                 personalPhone: seller.personalPhone,
                 whatsappConnected: seller.whatsappConnected,
+                aiTone: seller.aiTone,
+                aiBusinessContext: seller.aiBusinessContext,
+                aiInstructions: seller.aiInstructions,
             },
             token,
         });
@@ -102,6 +105,9 @@ sellersRouter.get("/me", async (c) => {
         businessName: seller.businessName,
         personalPhone: seller.personalPhone,
         whatsappConnected: seller.whatsappConnected,
+        aiTone: seller.aiTone,
+        aiBusinessContext: seller.aiBusinessContext,
+        aiInstructions: seller.aiInstructions,
     });
 });
 
@@ -109,13 +115,16 @@ sellersRouter.get("/me", async (c) => {
 sellersRouter.put("/me", async (c) => {
     const sellerId = c.get("sellerId" as never) as string;
 
-    const { businessName, personalPhone } = await c.req.json();
+    const { businessName, personalPhone, aiTone, aiBusinessContext, aiInstructions } = await c.req.json();
 
     await db
         .update(sellers)
         .set({
             ...(businessName && { businessName }),
             ...(personalPhone !== undefined && { personalPhone }),
+            ...(aiTone !== undefined && { aiTone: aiTone?.trim() || null }),
+            ...(aiBusinessContext !== undefined && { aiBusinessContext: aiBusinessContext?.trim() || null }),
+            ...(aiInstructions !== undefined && { aiInstructions: aiInstructions?.trim() || null }),
         })
         .where(eq(sellers.id, sellerId));
 

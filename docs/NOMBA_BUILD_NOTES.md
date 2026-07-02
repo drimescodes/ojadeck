@@ -58,5 +58,14 @@ Reported by participants and organizers:
 4. Test Nomba checkout order creation.
 5. Confirm webhook signature verification with a real delivered webhook.
 6. Confirm transaction verification before marking orders paid.
-7. Validate AI-generated order items against the seller catalogue before payment creation.
-8. Add an architecture/security note for the progress and final submissions.
+7. After deploying the latest local changes, smoke-test catalogue validation before payment creation.
+8. After deploying the latest local changes, smoke-test product image uploads and WhatsApp image replies.
+9. Add an architecture/security note for the progress and final submissions.
+
+## Latest Local Product Notes
+
+- Checkout creation no longer trusts model-generated product names, prices, or totals. It matches AI-confirmed items to in-stock catalogue products and recomputes totals from the database.
+- If a customer starts a new order while a previous payment link is pending, the old pending order is marked `cancelled`.
+- Seller escalation notifications include a `https://wa.me/...` profile link when the customer phone is available.
+- AI training fields live on the seller profile and are injected into the model prompt as tone, business context, and merchant rules.
+- Product images are uploaded locally and should be served from `/uploads/products/...` once deployed.

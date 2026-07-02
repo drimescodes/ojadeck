@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { customers, sellers, orders, conversations } from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { customers, sellers, orders, conversations, products } from "../db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import {
     generateAIResponse,
     parseOrderConfirmation,
@@ -13,11 +13,21 @@ import {
 import { getNombaAmountUnit, initiatePayment, verifyTransaction } from "./payment-provider";
 import { generateId, phoneFromWaId, formatNaira } from "../utils/helpers";
 import logger from "../utils/logger";
+import { join } from "node:path";
+import { MessageMedia } from "whatsapp-web.js";
 import type { Client } from "whatsapp-web.js";
 
 interface SessionManager {
     getClient(sellerId: string): Client | null;
 }
+
+type OrderItem = { name: string; qty: number; price: number };
+type OrderData = { items: OrderItem[]; total: number };
+type ProductMedia = { name: string; imageUrl: string };
+
+type OrderValidationResult =
+    | { ok: true; orderData: OrderData; corrected: boolean; mediaProducts: ProductMedia[] }
+    | { ok: false; message: string };
 
 let sessionManagerRef: SessionManager | null = null;
 
@@ -49,6 +59,195 @@ function getVerificationStatus(verification: any): string | null {
 
 function isSuccessfulVerificationStatus(status: string): boolean {
     return ["success", "successful", "paid", "completed", "approved", "payment successful"].includes(status.toLowerCase());
+}
+
+function normalizeProductName(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b(\w{4,})s\b/g, "$1");
+}
+
+function isResetOrderIntent(message: string): boolean {
+    return /\b(cancel|start over|start again|fresh order|new order|reset|discard|forget it|change order|different order)\b/i.test(message);
+}
+
+function isResendPaymentIntent(message: string): boolean {
+    return /\b(resend|send again|share again|link again|payment link|pay link)\b/i.test(message);
+}
+
+function isPaymentProgressIntent(message: string): boolean {
+    return /\b(i paid|paid|done|completed|payment done|sent payment|made payment|successful)\b/i.test(message);
+}
+
+function isLikelyFreshOrderIntent(message: string): boolean {
+    if (isPaymentProgressIntent(message) || isResendPaymentIntent(message)) return false;
+    return isResetOrderIntent(message) || /\b(order|buy|get|want|need|take|another|instead|different|switch)\b/i.test(message);
+}
+
+function formatOrderItems(items: OrderItem[]): string {
+    return items
+        .map((item) => `• ${item.name} x${item.qty} — ${formatNaira(item.price * item.qty)}`)
+        .join("\n");
+}
+
+function buildOrderConfirmationMessage(orderData: OrderData): string {
+    return `Got it. I've confirmed your order:\n\n${formatOrderItems(orderData.items)}\n\nTotal: ${formatNaira(orderData.total)}`;
+}
+
+function getLocalUploadPath(imageUrl: string): string | null {
+    if (!imageUrl.startsWith("/uploads/")) return null;
+    return join(process.cwd(), imageUrl.slice(1));
+}
+
+async function replyWithProductImage(
+    msg: any,
+    product: ProductMedia | null,
+    caption?: string
+): Promise<boolean> {
+    if (!product?.imageUrl) return false;
+
+    const imagePath = getLocalUploadPath(product.imageUrl);
+    if (!imagePath) return false;
+
+    try {
+        const media = MessageMedia.fromFilePath(imagePath);
+        await msg.reply(media, undefined, caption ? { caption } : undefined);
+        return true;
+    } catch (err: any) {
+        logger.warn({ product: product.name, imageUrl: product.imageUrl, err: err.message }, "Failed to send product image");
+        return false;
+    }
+}
+
+async function findMentionedProductWithImage(sellerId: string, message: string): Promise<ProductMedia | null> {
+    const requested = normalizeProductName(message);
+    if (!requested) return null;
+
+    const catalogue = await db.query.products.findMany({
+        where: and(eq(products.sellerId, sellerId), eq(products.inStock, true)),
+    });
+
+    const matches = catalogue
+        .filter((product) => product.imageUrl)
+        .filter((product) => {
+            const productName = normalizeProductName(product.name);
+            return requested === productName || requested.includes(productName) || productName.includes(requested);
+        })
+        .sort((a, b) => b.name.length - a.name.length);
+
+    const product = matches[0];
+    return product?.imageUrl ? { name: product.name, imageUrl: product.imageUrl } : null;
+}
+
+async function getLatestPendingOrder(conversationId: string) {
+    return db.query.orders.findFirst({
+        where: and(eq(orders.conversationId, conversationId), eq(orders.status, "pending")),
+        orderBy: [desc(orders.createdAt)],
+    });
+}
+
+async function cancelPendingOrders(conversationId: string): Promise<void> {
+    await db
+        .update(orders)
+        .set({ status: "cancelled" })
+        .where(and(eq(orders.conversationId, conversationId), eq(orders.status, "pending")));
+}
+
+async function handlePendingPaymentMessage(
+    conversation: { id: string; state: string },
+    customerMessage: string,
+    msg: any
+): Promise<"handled" | "continue"> {
+    if (conversation.state !== "awaiting_payment") return "continue";
+
+    const pendingOrder = await getLatestPendingOrder(conversation.id);
+
+    if (isResendPaymentIntent(customerMessage) && pendingOrder?.checkoutUrl) {
+        const reply = `Here is your payment link again:\n\n${pendingOrder.checkoutUrl}\n\nAmount: ${formatNaira(pendingOrder.totalAmount)}`;
+        await msg.reply(reply);
+        await saveMessage(conversation.id, "assistant", reply);
+        return "handled";
+    }
+
+    if (!isLikelyFreshOrderIntent(customerMessage)) return "continue";
+
+    await cancelPendingOrders(conversation.id);
+    await updateConversationState(conversation.id, "awaiting_order");
+
+    if (isResetOrderIntent(customerMessage) && !/\b(order|buy|get|want|need|take)\b/i.test(customerMessage)) {
+        const reply = "No problem, I've cancelled the pending payment link. What would you like to order now?";
+        await msg.reply(reply);
+        await saveMessage(conversation.id, "assistant", reply);
+        return "handled";
+    }
+
+    logger.info({ conversationId: conversation.id }, "Cancelled pending order before starting a fresh order");
+    return "continue";
+}
+
+async function validateOrderAgainstCatalogue(sellerId: string, orderData: OrderData): Promise<OrderValidationResult> {
+    const catalogue = await db.query.products.findMany({
+        where: and(eq(products.sellerId, sellerId), eq(products.inStock, true)),
+    });
+
+    if (catalogue.length === 0) {
+        return {
+            ok: false,
+            message: "I can't create a checkout yet because there are no in-stock products in the catalogue.",
+        };
+    }
+
+    const canonicalItems: OrderItem[] = [];
+    const mediaProducts: ProductMedia[] = [];
+    let corrected = false;
+
+    for (const item of orderData.items) {
+        const requestedName = normalizeProductName(String(item.name || ""));
+        const qty = Math.trunc(Number(item.qty));
+
+        if (!requestedName || !Number.isFinite(qty) || qty < 1 || qty > 99) {
+            return {
+                ok: false,
+                message: "I couldn't confirm that quantity. Please tell me the item and quantity again.",
+            };
+        }
+
+        const matchedProduct = catalogue.find((product) => {
+            const productName = normalizeProductName(product.name);
+            return requestedName === productName || requestedName.includes(productName) || productName.includes(requestedName);
+        });
+
+        if (!matchedProduct) {
+            const available = catalogue.map((product) => `• ${product.name} — ${formatNaira(product.price)}`).join("\n");
+            return {
+                ok: false,
+                message: `I can only create payment links for items in the catalogue right now.\n\nAvailable items:\n${available}\n\nWhich one should I get for you?`,
+            };
+        }
+
+        if (matchedProduct.name !== item.name || matchedProduct.price !== item.price || qty !== item.qty) {
+            corrected = true;
+        }
+
+        canonicalItems.push({
+            name: matchedProduct.name,
+            qty,
+            price: matchedProduct.price,
+        });
+
+        if (matchedProduct.imageUrl && !mediaProducts.some((product) => product.imageUrl === matchedProduct.imageUrl)) {
+            mediaProducts.push({ name: matchedProduct.name, imageUrl: matchedProduct.imageUrl });
+        }
+    }
+
+    const total = canonicalItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+    if (total !== orderData.total) corrected = true;
+
+    return { ok: true, orderData: { items: canonicalItems, total }, corrected, mediaProducts };
 }
 
 /**
@@ -133,6 +332,9 @@ export async function handleIncomingMessage(
             return;
         }
 
+        const pendingPaymentResult = await handlePendingPaymentMessage(conversation, customerMessage, msg);
+        if (pendingPaymentResult === "handled") return;
+
         // Generate AI response
         const aiResponse = await generateAIResponse(sellerId, conversation.id, customerMessage);
 
@@ -148,10 +350,14 @@ export async function handleIncomingMessage(
             await handleOrderConfirmed(sellerId, { ...customer, phone: customerPhone }, conversation, orderData, msg, cleanMsg);
         } else if (escalation) {
             // ─── Escalation flow ─────────────────────────────────
-            await handleEscalation(sellerId, customer, escalation, msg, cleanMsg);
+            await handleEscalation(sellerId, { ...customer, phone: customerPhone }, escalation, msg, cleanMsg);
         } else {
             // ─── Normal response ─────────────────────────────────
-            await msg.reply(cleanMsg);
+            const mentionedProduct = await findMentionedProductWithImage(sellerId, customerMessage);
+            const sentImage = await replyWithProductImage(msg, mentionedProduct, cleanMsg);
+            if (!sentImage) {
+                await msg.reply(cleanMsg);
+            }
             await saveMessage(conversation.id, "assistant", cleanMsg);
 
             // Update state based on conversation context
@@ -176,10 +382,21 @@ async function handleOrderConfirmed(
     sellerId: string,
     customer: { id: string; name: string | null; phone: string },
     conversation: { id: string; state: string },
-    orderData: { items: { name: string; qty: number; price: number }[]; total: number },
+    orderData: OrderData,
     msg: any,
     cleanMsg: string
 ): Promise<void> {
+    const validation = await validateOrderAgainstCatalogue(sellerId, orderData);
+    if (!validation.ok) {
+        await updateConversationState(conversation.id, "awaiting_order");
+        await msg.reply(validation.message);
+        await saveMessage(conversation.id, "assistant", validation.message);
+        logger.warn({ sellerId, orderData }, "AI order confirmation rejected by catalogue validation");
+        return;
+    }
+
+    const validatedOrder = validation.orderData;
+    const confirmationMsg = buildOrderConfirmationMessage(validatedOrder);
     const orderId = generateId();
     const referenceSuffix = orderId.replace(/[^a-zA-Z0-9-]/g, "").substring(0, 8);
     const txnRef = `OJ-${Date.now()}-${referenceSuffix}`;
@@ -190,19 +407,19 @@ async function handleOrderConfirmed(
         conversationId: conversation.id,
         sellerId,
         customerId: customer.id,
-        items: JSON.stringify(orderData.items),
-        totalAmount: orderData.total,
+        items: JSON.stringify(validatedOrder.items),
+        totalAmount: validatedOrder.total,
         paymentReference: txnRef,
         status: "pending",
     });
 
     // Update conversation state
-    await updateConversationState(conversation.id, "awaiting_payment", JSON.stringify(orderData));
+    await updateConversationState(conversation.id, "awaiting_payment", JSON.stringify(validatedOrder));
 
     try {
         // Generate payment link
         const checkoutUrl = await initiatePayment({
-            amount: orderData.total,
+            amount: validatedOrder.total,
             email: `wa.${customer.phone.replace("+", "")}@customer.com`, // Payment providers usually require a valid email format
             transactionRef: txnRef,
             customerName: customer.name || "Customer",
@@ -216,18 +433,21 @@ async function handleOrderConfirmed(
             .where(eq(orders.id, orderId));
 
         // Send AI message + payment link
-        const paymentMsg = `${cleanMsg}\n\n💳 *Pay here:* ${checkoutUrl}\n\nClick the link above to complete your payment of ${formatNaira(orderData.total)}.`;
+        const primaryProductImage = validation.mediaProducts[0] || null;
+        await replyWithProductImage(msg, primaryProductImage, primaryProductImage ? `${primaryProductImage.name}` : undefined);
+
+        const paymentMsg = `${confirmationMsg}\n\nPay here: ${checkoutUrl}\n\nClick the link above to complete your payment of ${formatNaira(validatedOrder.total)}.`;
         await msg.reply(paymentMsg);
         await saveMessage(conversation.id, "assistant", paymentMsg);
 
-        logger.info({ orderId, txnRef, total: orderData.total }, "Order created, payment link sent");
+        logger.info({ orderId, txnRef, total: validatedOrder.total, corrected: validation.corrected }, "Order created, payment link sent");
     } catch (error: any) {
         logger.error({ err: error.message }, "Failed to generate payment link");
         await msg.reply(
-            `${cleanMsg}\n\n⚠️ I had trouble generating the payment link. Let me connect you with the seller to complete this order.`
+            `${cleanMsg || confirmationMsg}\n\nI had trouble generating the payment link. Let me connect you with the seller to complete this order.`
         );
-        await saveMessage(conversation.id, "assistant", cleanMsg);
-        await handleEscalation(sellerId, { id: customer.id, name: customer.name }, "Payment link generation failed", msg, "");
+        await saveMessage(conversation.id, "assistant", cleanMsg || confirmationMsg);
+        await handleEscalation(sellerId, customer, "Payment link generation failed", msg, "");
     }
 }
 
@@ -236,7 +456,7 @@ async function handleOrderConfirmed(
  */
 async function handleEscalation(
     sellerId: string,
-    customer: { id: string; name: string | null },
+    customer: { id: string; name: string | null; phone?: string },
     reason: string,
     msg: any,
     cleanMsg: string
@@ -251,7 +471,11 @@ async function handleEscalation(
     });
 
     if (seller?.personalPhone && sessionManagerRef) {
-        const sellerNotifyMsg = `🔔 *Customer needs attention*\n\nCustomer: ${customer.name || "Unknown"}\nReason: ${reason}\n\nPlease check your business WhatsApp.`;
+        const profileUrl = customer.phone ? `https://wa.me/${customer.phone.replace(/\D/g, "")}` : null;
+        const customerLine = profileUrl
+            ? `${customer.name || customer.phone}\nProfile: ${profileUrl}`
+            : customer.name || "Unknown";
+        const sellerNotifyMsg = `🔔 *Customer needs attention*\n\nCustomer: ${customerLine}\nReason: ${reason}\n\nPlease check your business WhatsApp.`;
 
         try {
             const client = sessionManagerRef.getClient(sellerId);

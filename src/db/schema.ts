@@ -7,6 +7,9 @@ export const sellers = sqliteTable("sellers", {
     password: text("password").notNull(), // bcrypt hash
     businessName: text("business_name").notNull(),
     personalPhone: text("personal_phone"), // for notifications
+    aiTone: text("ai_tone"),
+    aiBusinessContext: text("ai_business_context"),
+    aiInstructions: text("ai_instructions"),
     whatsappConnected: integer("whatsapp_connected", { mode: "boolean" }).default(false),
     autoReplyEnabled: integer("auto_reply_enabled", { mode: "boolean" }).default(true),
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
@@ -21,6 +24,7 @@ export const products = sqliteTable("products", {
     name: text("name").notNull(),
     description: text("description"),
     price: integer("price").notNull(), // in kobo (100 = ₦1)
+    imageUrl: text("image_url"),
     inStock: integer("in_stock", { mode: "boolean" }).default(true),
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
@@ -80,7 +84,7 @@ export const orders = sqliteTable("orders", {
     totalAmount: integer("total_amount").notNull(), // kobo
     paymentReference: text("payment_reference").unique(),
     checkoutUrl: text("checkout_url"),
-    status: text("status", { enum: ["pending", "paid", "failed"] })
+    status: text("status", { enum: ["pending", "paid", "failed", "cancelled"] })
         .notNull()
         .default("pending"),
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

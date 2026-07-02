@@ -2,8 +2,9 @@ const API_BASE = '/api';
 
 async function request(path, options = {}) {
     const token = localStorage.getItem('token');
+    const isFormData = options.body instanceof FormData;
     const headers = {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...(token && { Authorization: `Bearer ${token}` }),
         ...options.headers,
     };
@@ -36,6 +37,11 @@ export const api = {
     getProducts: () => request('/products'),
     addProduct: (data) => request('/products', { method: 'POST', body: JSON.stringify(data) }),
     updateProduct: (id, data) => request(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    uploadProductImage: (id, file) => {
+        const body = new FormData();
+        body.append('image', file);
+        return request(`/products/${id}/image`, { method: 'POST', body });
+    },
     deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),
 
     // Orders

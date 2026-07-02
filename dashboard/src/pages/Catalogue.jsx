@@ -6,6 +6,8 @@ export default function Catalogue() {
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState({ name: '', description: '', price: '', inStock: true });
+    const [imageFile, setImageFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState('');
     const [loading, setLoading] = useState(true);
 
     const loadProducts = async () => {
@@ -29,6 +31,8 @@ export default function Catalogue() {
     const openAdd = () => {
         setEditing(null);
         setForm({ name: '', description: '', price: '', inStock: true });
+        setImageFile(null);
+        setImagePreview('');
         setShowModal(true);
     };
 
@@ -40,7 +44,16 @@ export default function Catalogue() {
             price: (product.price / 100).toString(),
             inStock: product.inStock,
         });
+        setImageFile(null);
+        setImagePreview(product.imageUrl || '');
         setShowModal(true);
+    };
+
+    const handleImageChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImageFile(file);
+        setImagePreview(URL.createObjectURL(file));
     };
 
     const handleSave = async () => {
@@ -52,12 +65,20 @@ export default function Catalogue() {
         };
 
         try {
+            let productId = editing?.id;
             if (editing) {
                 await api.updateProduct(editing.id, payload);
             } else {
-                await api.addProduct(payload);
+                const created = await api.addProduct(payload);
+                productId = created.id;
+            }
+
+            if (imageFile && productId) {
+                await api.uploadProductImage(productId, imageFile);
             }
             setShowModal(false);
+            setImageFile(null);
+            setImagePreview('');
             loadProducts();
         } catch (err) {
             alert(err.message);
@@ -120,6 +141,11 @@ export default function Catalogue() {
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                     {products.map((p) => (
                         <div key={p.id} className="rounded-[26px] border border-[#e7dfcf] bg-white p-5 shadow-[0_12px_30px_rgba(104,85,45,0.05)]">
+                            {p.imageUrl && (
+                                <div className="mb-5 aspect-[4/3] overflow-hidden rounded-2xl border border-[#eee5d4] bg-[#f7f3ea]">
+                                    <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
+                                </div>
+                            )}
                             <div className="flex items-start justify-between gap-4">
                                 <div>
                                     <div className="text-lg font-bold tracking-[-0.03em] text-[#18231d]">{p.name}</div>
@@ -217,6 +243,27 @@ export default function Catalogue() {
                                     />
                                     In Stock
                                 </label>
+                            </div>
+                            <div className="space-y-3">
+                                <label className="text-sm font-semibold text-[#294136]">Product Image</label>
+                                {imagePreview ? (
+                                    <div className="aspect-[4/3] overflow-hidden rounded-2xl border border-[#ddd4c3] bg-[#f7f3ea]">
+                                        <img src={imagePreview} alt="Product preview" className="h-full w-full object-cover" />
+                                    </div>
+                                ) : (
+                                    <div className="flex aspect-[4/3] items-center justify-center rounded-2xl border border-dashed border-[#d8cfbc] bg-[#f7f3ea] text-sm font-semibold text-[#7b6b48]">
+                                        No image selected
+                                    </div>
+                                )}
+                                <input
+                                    className="block w-full text-sm text-[#294136] file:mr-4 file:rounded-xl file:border-0 file:bg-[#153d32] file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-[#1b4a3d]"
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    onChange={handleImageChange}
+                                />
+                                <p className="text-xs leading-6 text-[#6d776f]">
+                                    JPG, PNG, or WEBP. Max 3MB.
+                                </p>
                             </div>
                         </div>
                         <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

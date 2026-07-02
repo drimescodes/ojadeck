@@ -259,7 +259,13 @@ async function generateOpenRouterResponse(systemPrompt: string, contents: ChatCo
  * Build a system prompt for a specific seller, injecting their catalogue.
  */
 function buildSystemPrompt(
-    seller: { businessName: string; personalPhone: string | null },
+    seller: {
+        businessName: string;
+        personalPhone: string | null;
+        aiTone?: string | null;
+        aiBusinessContext?: string | null;
+        aiInstructions?: string | null;
+    },
     catalogue: { name: string; description: string | null; price: number; inStock: boolean | null }[]
 ): string {
     const inStockProducts = catalogue.filter((p) => p.inStock !== false);
@@ -272,12 +278,23 @@ function buildSystemPrompt(
                 })
                 .join("\n")
             : "No products currently available.";
+    const trainingSections = [
+        seller.aiTone?.trim() ? `Tone and mannerisms:\n${seller.aiTone.trim()}` : "",
+        seller.aiBusinessContext?.trim() ? `Business context:\n${seller.aiBusinessContext.trim()}` : "",
+        seller.aiInstructions?.trim() ? `Merchant instructions:\n${seller.aiInstructions.trim()}` : "",
+    ].filter(Boolean);
+    const trainingText = trainingSections.length > 0
+        ? trainingSections.join("\n\n")
+        : "No extra merchant training has been added.";
 
     return `You are the friendly AI sales assistant for "${seller.businessName}".
 You handle customer inquiries on WhatsApp, help them browse products, take orders, and guide them through payment.
 
 PRODUCT CATALOGUE:
 ${catalogueText}
+
+MERCHANT TRAINING:
+${trainingText}
 
 YOUR BEHAVIOR:
 - Greet customers warmly using the business name on first contact

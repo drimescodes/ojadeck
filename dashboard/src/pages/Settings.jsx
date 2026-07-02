@@ -2,13 +2,25 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 
 export default function Settings() {
-    const [form, setForm] = useState({ businessName: '', personalPhone: '' });
+    const [form, setForm] = useState({
+        businessName: '',
+        personalPhone: '',
+        aiTone: '',
+        aiBusinessContext: '',
+        aiInstructions: '',
+    });
     const [loading, setLoading] = useState(false);
     const [saved, setSaved] = useState(false);
 
     useEffect(() => {
         api.getProfile().then((data) => {
-            setForm({ businessName: data.businessName || '', personalPhone: data.personalPhone || '' });
+            setForm({
+                businessName: data.businessName || '',
+                personalPhone: data.personalPhone || '',
+                aiTone: data.aiTone || '',
+                aiBusinessContext: data.aiBusinessContext || '',
+                aiInstructions: data.aiInstructions || '',
+            });
         }).catch(() => { });
     }, []);
 
@@ -48,7 +60,7 @@ export default function Settings() {
                 </p>
             </div>
 
-            <div className="max-w-2xl rounded-[28px] border border-[#e7dfcf] bg-white p-6 shadow-[0_12px_30px_rgba(104,85,45,0.05)] md:p-7">
+            <div className="max-w-3xl rounded-[28px] border border-[#e7dfcf] bg-white p-6 shadow-[0_12px_30px_rgba(104,85,45,0.05)] md:p-7">
                 <form onSubmit={handleSave} className="space-y-5">
                     <div className="space-y-2">
                         <label className="text-sm font-semibold text-[#294136]">Business Name</label>
@@ -75,6 +87,50 @@ export default function Settings() {
                         <p className="text-xs leading-6 text-[#6d776f]">
                             Used for merchant notifications and escalation alerts when the bot hands a conversation back to you.
                         </p>
+                    </div>
+                    <div className="border-t border-[#eee5d4] pt-6">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
+                            Train AI
+                        </div>
+                        <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">
+                            Assistant style and business context
+                        </h2>
+                        <p className="mt-2 text-sm leading-7 text-[#627168]">
+                            Shape how the assistant sounds, what it knows about the business, and the rules it should follow.
+                        </p>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-[#294136]">Tone and Mannerisms</label>
+                        <textarea
+                            className="min-h-28 w-full resize-y rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm leading-7 text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                            name="aiTone"
+                            value={form.aiTone}
+                            onChange={handleChange}
+                            maxLength={1200}
+                            placeholder="e.g. Warm, confident, a little playful. Use Nigerian Pidgin only when the customer does."
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-[#294136]">Business Context</label>
+                        <textarea
+                            className="min-h-32 w-full resize-y rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm leading-7 text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                            name="aiBusinessContext"
+                            value={form.aiBusinessContext}
+                            onChange={handleChange}
+                            maxLength={2000}
+                            placeholder="e.g. We deliver within Lagos, pickup is available in Yaba, and same-day delivery closes by 4pm."
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-[#294136]">Rules and Preferences</label>
+                        <textarea
+                            className="min-h-32 w-full resize-y rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm leading-7 text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                            name="aiInstructions"
+                            value={form.aiInstructions}
+                            onChange={handleChange}
+                            maxLength={2000}
+                            placeholder="e.g. Always ask for delivery area before promising delivery. Escalate custom bulk requests."
+                        />
                     </div>
                     <button
                         type="submit"
