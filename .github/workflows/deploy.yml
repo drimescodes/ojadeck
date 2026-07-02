@@ -41,7 +41,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}" '
             set -eu
-            su - nomba -c "cd /home/nomba/ojadeck && git pull --ff-only origin main && /home/nomba/.bun/bin/bun install && cd dashboard && /home/nomba/.bun/bin/bun install && /home/nomba/.bun/bin/bun run build"
+            su - nomba -c "export PATH=/home/nomba/.bun/bin:\$PATH && cd /home/nomba/ojadeck && git pull --ff-only origin main && bun install && cd dashboard && bun install && bun run build"
             systemctl restart ojadeck
             systemctl is-active --quiet ojadeck
           '
