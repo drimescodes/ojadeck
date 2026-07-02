@@ -1,0 +1,47 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install backend dependencies
+        run: bun install
+
+      - name: Typecheck
+        run: ./node_modules/.bin/tsc --noEmit
+
+  deploy:
+    needs: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DROPLET_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DROPLET_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}" '
+            set -eu
+            su - nomba -c "cd /home/nomba/ojadeck && git pull --ff-only origin main && /home/nomba/.bun/bin/bun install && cd dashboard && /home/nomba/.bun/bin/bun install && /home/nomba/.bun/bin/bun run build"
+            systemctl restart ojadeck
+            systemctl is-active --quiet ojadeck
+          '
