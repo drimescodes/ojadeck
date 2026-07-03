@@ -43,6 +43,8 @@ walletRouter.get("/summary", async (c) => {
         availableBalanceDisplay: formatNaira(summary.availableBalance),
         lifetimeCreditsDisplay: formatNaira(summary.lifetimeCredits),
         pendingPayoutsDisplay: formatNaira(summary.pendingPayouts),
+        estimatedTransferFeeDisplay: formatNaira(summary.estimatedTransferFee),
+        maxWithdrawalAmountDisplay: formatNaira(summary.maxWithdrawalAmount),
         payoutAccount,
     });
 });

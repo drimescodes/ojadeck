@@ -4,9 +4,9 @@
 
 OjaDeck is a WhatsApp commerce control deck for Nigerian small businesses. Merchants can register, connect a business WhatsApp number, publish a catalogue, let an AI assistant answer customer DMs, collect orders, generate payment links, track paid orders, and withdraw merchant balances from a dashboard.
 
-This repository is now the OjaDeck base for the Nomba Forward Hackathon 2026. Nomba Checkout order creation, webhook signature verification, and server-side transaction verification are wired in the backend.
+This repository is now the OjaDeck base for the Nomba Forward Hackathon 2026. Nomba Checkout order creation, webhook signature verification, server-side transaction verification, wallet ledgering, and live Nomba payouts are wired in the backend.
 
-Latest local work, not pushed/deployed yet: merchant wallet ledger, Nomba bank lookup, live payout confirmation flow, architecture note, and payment receipt copy/logging.
+Latest local work, not pushed/deployed yet: escalation contact-card cleanup, mobile payment-complete layout fix, generated WhatsApp receipt image, payout status polling, and transfer-fee-aware wallet ledgering.
 
 ## Demo Flow
 
@@ -88,7 +88,7 @@ ojadeck/
 - Escalation notifications include a clickable `https://wa.me/...` customer profile link when the customer phone is known.
 - Architecture and security note is available at `ARCHITECTURE.md`.
 - Merchant wallet tracks paid-order credits through immutable ledger entries.
-- Wallet dashboard supports verified payout accounts, withdrawal review, live Nomba transfer confirmation, payout history, and ledger activity.
+- Wallet dashboard supports verified payout accounts, withdrawal review, live Nomba transfer confirmation, payout history, ledger activity, and estimated Nomba transfer-fee reservation.
 
 ## Key Routes
 

@@ -98,7 +98,7 @@ export const ledgerEntries = sqliteTable("ledger_entries", {
         .notNull()
         .references(() => sellers.id, { onDelete: "cascade" }),
     type: text("type", {
-        enum: ["order_paid", "payout_requested", "payout_failed", "manual_adjustment"],
+        enum: ["order_paid", "payout_requested", "payout_failed", "payout_fee", "payout_fee_adjustment", "manual_adjustment"],
     }).notNull(),
     amount: integer("amount").notNull(), // signed kobo: credits positive, debits negative
     reference: text("reference").notNull().unique(),

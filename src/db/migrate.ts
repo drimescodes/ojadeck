@@ -6,6 +6,7 @@ import logger from "../utils/logger";
  */
 export function migrate(): void {
   logger.info("Running database migrations...");
+  const estimatedTransferFeeKobo = Math.max(0, Math.round(Number(process.env.NOMBA_TRANSFER_FEE_NAIRA || "20") * 100));
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS sellers (
@@ -192,6 +193,26 @@ export function migrate(): void {
     FROM orders
     WHERE status = 'paid';
   `);
+
+  if (estimatedTransferFeeKobo > 0) {
+    const backfillPayoutFees = sqlite.prepare(`
+      INSERT OR IGNORE INTO ledger_entries (
+        id, seller_id, type, amount, reference, status, metadata, created_at
+      )
+      SELECT
+        lower(hex(randomblob(16))),
+        seller_id,
+        'payout_fee',
+        ?,
+        'payout:' || id || ':fee',
+        'posted',
+        '{"backfilled":true,"estimated":true}',
+        COALESCE(confirmed_at, updated_at, created_at, unixepoch())
+      FROM payouts
+      WHERE status = 'success';
+    `);
+    backfillPayoutFees.run(-estimatedTransferFeeKobo);
+  }
 
   logger.info("Database migrations complete");
 }

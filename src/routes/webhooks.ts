@@ -60,6 +60,24 @@ function extractPayoutReference(body: any): string {
     );
 }
 
+function amountToKobo(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.round(parsed * 100);
+}
+
+function extractChargedAmountKobo(body: any): number | null {
+    return amountToKobo(
+        body?.data?.transaction?.meta?.amount_charged
+        || body?.data?.transaction?.meta?.amountCharged
+        || body?.data?.transaction?.amount_charged
+        || body?.data?.transaction?.amountCharged
+        || body?.data?.meta?.amount_charged
+        || body?.data?.meta?.amountCharged
+    );
+}
+
 // Payment webhook — receives payment notifications
 webhooksRouter.post("/payments", async (c) => {
     try {
@@ -106,6 +124,7 @@ webhooksRouter.post("/payments", async (c) => {
                 merchantTxRef,
                 nombaStatus: transaction.status || transaction.transactionStatus || transaction.responseMessage,
                 nombaTransferId: transaction.transactionId || transaction.id,
+                chargedAmountKobo: extractChargedAmountKobo(body),
             });
         }
 

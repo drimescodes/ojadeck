@@ -5,7 +5,9 @@ import { generateId } from "../utils/helpers";
 import { transferToBank } from "./payment-provider";
 import logger from "../utils/logger";
 
-type LedgerType = "order_paid" | "payout_requested" | "payout_failed" | "manual_adjustment";
+type LedgerType = "order_paid" | "payout_requested" | "payout_failed" | "payout_fee" | "payout_fee_adjustment" | "manual_adjustment";
+
+const DEFAULT_TRANSFER_FEE_KOBO = Math.max(0, Math.round(Number(process.env.NOMBA_TRANSFER_FEE_NAIRA || "20") * 100));
 
 export async function createLedgerEntry(params: {
     sellerId: string;
@@ -53,6 +55,8 @@ export async function getWalletSummary(sellerId: string): Promise<{
     availableBalance: number;
     lifetimeCredits: number;
     pendingPayouts: number;
+    estimatedTransferFee: number;
+    maxWithdrawalAmount: number;
 }> {
     const entries = await db.query.ledgerEntries.findMany({
         where: and(eq(ledgerEntries.sellerId, sellerId), eq(ledgerEntries.status, "posted")),
@@ -69,7 +73,13 @@ export async function getWalletSummary(sellerId: string): Promise<{
         .filter((payout) => payout.status === "pending_confirmation" || payout.status === "processing")
         .reduce((sum, payout) => sum + payout.amount, 0);
 
-    return { availableBalance, lifetimeCredits, pendingPayouts };
+    return {
+        availableBalance,
+        lifetimeCredits,
+        pendingPayouts,
+        estimatedTransferFee: DEFAULT_TRANSFER_FEE_KOBO,
+        maxWithdrawalAmount: Math.max(0, availableBalance - DEFAULT_TRANSFER_FEE_KOBO),
+    };
 }
 
 export async function getLatestPayoutAccount(sellerId: string) {
@@ -124,8 +134,9 @@ export async function createPayoutRequest(sellerId: string, amount: number) {
     }
 
     const summary = await getWalletSummary(sellerId);
-    if (summary.availableBalance < amount) {
-        throw new Error("Insufficient available balance.");
+    const totalEstimatedDebit = amount + DEFAULT_TRANSFER_FEE_KOBO;
+    if (summary.availableBalance < totalEstimatedDebit) {
+        throw new Error(`Insufficient available balance after estimated Nomba transfer fee (${formatFee(DEFAULT_TRANSFER_FEE_KOBO)}).`);
     }
 
     const id = generateId();
@@ -167,6 +178,88 @@ function extractTransferId(response: any): string | null {
     return id ? String(id) : null;
 }
 
+function formatFee(kobo: number): string {
+    return `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}`;
+}
+
+function amountToKobo(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.round(parsed * 100);
+}
+
+function extractChargedAmountKobo(response: any): number | null {
+    return amountToKobo(
+        response?.data?.meta?.amount_charged
+        || response?.data?.meta?.amountCharged
+        || response?.data?.amount_charged
+        || response?.data?.amountCharged
+        || response?.meta?.amount_charged
+        || response?.meta?.amountCharged
+    );
+}
+
+async function ensurePayoutFeeDebit(payout: typeof payouts.$inferSelect, feeAmount: number): Promise<void> {
+    if (feeAmount <= 0) return;
+
+    await createLedgerEntry({
+        sellerId: payout.sellerId,
+        type: "payout_fee",
+        amount: -feeAmount,
+        reference: `payout:${payout.id}:fee`,
+        metadata: { payoutId: payout.id, merchantTxRef: payout.merchantTxRef, estimated: true },
+    });
+}
+
+async function reversePayoutFeeDebit(payout: typeof payouts.$inferSelect): Promise<void> {
+    const feeEntry = await db.query.ledgerEntries.findFirst({
+        where: and(
+            eq(ledgerEntries.sellerId, payout.sellerId),
+            eq(ledgerEntries.reference, `payout:${payout.id}:fee`)
+        ),
+    });
+
+    if (!feeEntry || feeEntry.status !== "posted") return;
+
+    await createLedgerEntry({
+        sellerId: payout.sellerId,
+        type: "payout_failed",
+        amount: Math.abs(feeEntry.amount),
+        reference: `payout:${payout.id}:fee-reversal`,
+        metadata: { payoutId: payout.id, merchantTxRef: payout.merchantTxRef },
+    });
+}
+
+async function adjustPayoutFeeFromChargedAmount(payout: typeof payouts.$inferSelect, chargedAmountKobo: number | null): Promise<void> {
+    if (!chargedAmountKobo) return;
+
+    const actualFee = Math.max(0, chargedAmountKobo - payout.amount);
+    const feeEntry = await db.query.ledgerEntries.findFirst({
+        where: and(
+            eq(ledgerEntries.sellerId, payout.sellerId),
+            eq(ledgerEntries.reference, `payout:${payout.id}:fee`)
+        ),
+    });
+    const bookedFee = feeEntry && feeEntry.status === "posted" ? Math.abs(feeEntry.amount) : 0;
+    const difference = actualFee - bookedFee;
+    if (difference === 0) return;
+
+    await createLedgerEntry({
+        sellerId: payout.sellerId,
+        type: "payout_fee_adjustment",
+        amount: -difference,
+        reference: `payout:${payout.id}:fee-adjustment`,
+        metadata: {
+            payoutId: payout.id,
+            merchantTxRef: payout.merchantTxRef,
+            chargedAmount: chargedAmountKobo,
+            actualFee,
+            bookedFee,
+        },
+    });
+}
+
 export async function confirmPayout(sellerId: string, payoutId: string) {
     const payout = await db.query.payouts.findFirst({
         where: and(eq(payouts.id, payoutId), eq(payouts.sellerId, sellerId)),
@@ -203,6 +296,7 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
         reference: `payout:${payout.id}:debit`,
         metadata: { payoutId: payout.id, merchantTxRef: payout.merchantTxRef },
     });
+    await ensurePayoutFeeDebit(payout, DEFAULT_TRANSFER_FEE_KOBO);
 
     try {
         const response = await transferToBank({
@@ -216,6 +310,7 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
         const nombaStatus = extractTransferStatus(response);
         const normalizedStatus = nombaStatus.toUpperCase();
         const finalStatus = normalizedStatus === "SUCCESS" ? "success" : "processing";
+        await adjustPayoutFeeFromChargedAmount(payout, extractChargedAmountKobo(response));
 
         await db
             .update(payouts)
@@ -236,6 +331,7 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
             reference: `payout:${payout.id}:reversal`,
             metadata: { payoutId: payout.id, merchantTxRef: payout.merchantTxRef, error: err.message },
         });
+        await reversePayoutFeeDebit(payout);
 
         await db
             .update(payouts)
@@ -256,6 +352,7 @@ export async function markPayoutSuccessFromWebhook(params: {
     merchantTxRef: string;
     nombaStatus?: string | null;
     nombaTransferId?: string | null;
+    chargedAmountKobo?: number | null;
 }) {
     const payout = await db.query.payouts.findFirst({
         where: eq(payouts.merchantTxRef, params.merchantTxRef),
@@ -273,6 +370,17 @@ export async function markPayoutSuccessFromWebhook(params: {
             eq(ledgerEntries.sellerId, payout.sellerId),
             eq(ledgerEntries.reference, `payout:${payout.id}:reversal`)
         ));
+
+    await db
+        .update(ledgerEntries)
+        .set({ status: "void" })
+        .where(and(
+            eq(ledgerEntries.sellerId, payout.sellerId),
+            eq(ledgerEntries.reference, `payout:${payout.id}:fee-reversal`)
+        ));
+
+    await ensurePayoutFeeDebit(payout, DEFAULT_TRANSFER_FEE_KOBO);
+    await adjustPayoutFeeFromChargedAmount(payout, params.chargedAmountKobo ?? null);
 
     await db
         .update(payouts)

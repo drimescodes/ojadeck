@@ -69,16 +69,18 @@ Webhook handling:
 - Requires a known order reference and exact amount match before marking an order paid.
 - Attempts Nomba transaction lookup by order reference and then transaction ID.
 - If lookup is temporarily unavailable but the signed webhook has valid reference, amount, and currency, OjaDeck accepts the signed webhook confirmation and marks the order paid.
-- After marking an order paid, OjaDeck sends the customer a WhatsApp confirmation message and sends the merchant a paid-order notification.
+- After marking an order paid, OjaDeck sends the customer a WhatsApp confirmation receipt, attempts to attach a generated receipt image, and sends the merchant a paid-order notification.
 
 Wallet and payout handling:
 
 - Paid orders create one `order_paid` ledger credit for the seller.
 - Duplicate webhooks do not duplicate credits because ledger references are unique per order.
 - Payout requests are created as `pending_confirmation` before money moves.
-- Confirmed payouts create a negative ledger entry to reserve funds before calling Nomba Transfers.
+- Confirmed payouts create negative ledger entries for both the requested payout amount and the estimated Nomba transfer fee before calling Nomba Transfers.
 - Successful or processing transfer responses keep funds reserved.
-- Failed transfer calls create a positive reversal entry and mark the payout failed.
+- Failed transfer calls create positive reversal entries and mark the payout failed.
+- `payout_success` webhooks mark processing payouts successful and adjust the fee ledger if Nomba reports a different charged amount.
+- The dashboard shows both available balance and max withdrawal amount so merchants account for transfer fees before submitting a payout.
 - Merchants can verify bank details through Nomba bank lookup before saving a payout account.
 
 ## AI Safety and Catalogue Guardrails
@@ -122,8 +124,9 @@ The AI is never trusted as the payment source of truth.
 - Duplicate paid webhooks are ignored.
 - Amount or currency mismatches leave orders pending and log a warning.
 - Duplicate ledger credits are prevented by unique references.
-- Failed payout transfers are reversed back into available balance.
+- Failed payout transfers, including reserved transfer fees, are reversed back into available balance.
 - If product image sending fails, the text response still sends.
+- If generated receipt image sending fails, the text receipt still sends.
 - If seller notification fails, the payment/order state remains correct and the failure is logged.
 
 ## Sensitive Data
@@ -141,6 +144,7 @@ NOMBA_*_PRIVATE_KEY
 NOMBA_*_PARENT_ACCOUNT_ID
 NOMBA_*_SUB_ACCOUNT_ID
 NOMBA_WEBHOOK_SECRET
+NOMBA_TRANSFER_FEE_NAIRA
 ```
 
 Runtime state is ignored by git:

@@ -15,6 +15,7 @@ export default function Wallet() {
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
     const confirmingPayoutRef = useRef(false);
+    const statusPollRef = useRef(null);
 
     useBodyScrollLock(Boolean(pendingPayout));
 
@@ -40,6 +41,7 @@ export default function Wallet() {
                 accountName: summaryData.payoutAccount.accountName,
             });
         }
+        return { summaryData, ledgerData, payoutData };
     };
 
     useEffect(() => {
@@ -49,7 +51,23 @@ export default function Wallet() {
         ])
             .catch((err) => setMessage(err.message))
             .finally(() => setLoading(false));
+
+        return () => {
+            if (statusPollRef.current) clearTimeout(statusPollRef.current);
+        };
     }, []);
+
+    const waitForPayoutSettlement = async (payoutId) => {
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            await new Promise((resolve) => {
+                statusPollRef.current = setTimeout(resolve, 1500);
+            });
+            const { payoutData } = await loadWallet();
+            const current = payoutData.find((payout) => payout.id === payoutId);
+            if (current && current.status !== 'processing') return current;
+        }
+        return null;
+    };
 
     const handleBankChange = (e) => {
         const { name, value } = e.target;
@@ -126,7 +144,14 @@ export default function Wallet() {
             await api.confirmPayout(payout.id);
             setWithdrawAmount('');
             await loadWallet();
-            setMessage('Payout submitted to Nomba.');
+            const settled = await waitForPayoutSettlement(payout.id);
+            if (settled?.status === 'success') {
+                setMessage('Payout completed.');
+            } else if (settled?.status === 'failed') {
+                setMessage(settled.errorMessage || 'Payout failed.');
+            } else {
+                setMessage('Payout submitted to Nomba. Waiting for confirmation.');
+            }
         } catch (err) {
             setMessage(err.message);
             await loadWallet();
@@ -139,7 +164,7 @@ export default function Wallet() {
     const statCards = [
         { label: 'Available Balance', value: summary?.availableBalanceDisplay || '₦0' },
         { label: 'Lifetime Credits', value: summary?.lifetimeCreditsDisplay || '₦0' },
-        { label: 'Reserved Payouts', value: summary?.pendingPayoutsDisplay || '₦0' },
+        { label: 'Max Withdrawal', value: summary?.maxWithdrawalAmountDisplay || '₦0' },
     ];
 
     if (loading) {
@@ -233,7 +258,7 @@ export default function Wallet() {
                             Review Withdrawal
                         </button>
                         <p className="text-xs leading-6 text-[#6d776f]">
-                            Transfers are live. You will confirm before money is sent.
+                            Transfers are live. OjaDeck reserves an estimated Nomba transfer fee of {summary?.estimatedTransferFeeDisplay || '₦20'} so the balance reflects what can actually leave the wallet.
                         </p>
                     </div>
                 </div>
@@ -341,6 +366,9 @@ function PayoutConfirmModal({ payout, busy, onCancel, onConfirm }) {
                 <p className="mt-3 text-sm leading-7 text-[#627168]">
                     Send this payout to {payout.accountName} at {payout.bankName}, account {payout.accountNumber}.
                 </p>
+                <div className="mt-4 rounded-2xl border border-[#eee5d4] bg-[#fbf8f2] px-4 py-3 text-sm leading-7 text-[#294136]">
+                    Nomba transfer fees are reserved from the wallet when the payout is submitted. If Nomba returns a different charged amount, OjaDeck adjusts the ledger after confirmation.
+                </div>
                 <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                     <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136]" onClick={onCancel} disabled={busy}>
                         Cancel

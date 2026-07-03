@@ -67,8 +67,9 @@ Reported by participants and organizers:
 
 - Checkout creation no longer trusts model-generated product names, prices, or totals. It matches AI-confirmed items to in-stock catalogue products and recomputes totals from the database.
 - If a customer starts a new order while a previous payment link is pending, the old pending order is marked `cancelled`.
-- Seller escalation notifications include a `https://wa.me/...` profile link when the customer phone is available.
+- Seller escalation notifications include the customer contact card when WhatsApp exposes it. The text notification does not include a separate profile link because the contact card already opens the customer contact.
 - AI training fields live on the seller profile and are injected into the model prompt as tone, business context, and merchant rules.
 - Product images are uploaded locally and should be served from `/uploads/products/...` once deployed.
 - Wallet ledger credits sellers on paid orders and supports merchant payout requests through Nomba Transfers.
 - Payouts are two-step: create a withdrawal request, then confirm before sending real money.
+- Wallet payouts reserve an estimated Nomba transfer fee in the ledger, reverse it on failed payouts, and adjust it when Nomba reports the actual charged amount.

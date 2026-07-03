@@ -15,6 +15,8 @@ import { creditOrderPayment } from "./wallet";
 import { generateId, phoneFromWaId, formatNaira } from "../utils/helpers";
 import logger from "../utils/logger";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
+import puppeteer from "puppeteer";
 import { MessageMedia } from "whatsapp-web.js";
 import type { Client } from "whatsapp-web.js";
 
@@ -142,12 +144,6 @@ function extractReferencedQuantity(customerMessage: string): number | null {
     return null;
 }
 
-function isLikelyPublicPhoneNumber(phone?: string): boolean {
-    if (!phone) return false;
-    const digits = phone.replace(/\D/g, "");
-    return digits.length >= 10 && digits.length <= 15;
-}
-
 function isResetOrderIntent(message: string): boolean {
     return /\b(cancel|start over|start again|fresh order|new order|reset|discard|forget it|change order|different order)\b/i.test(message);
 }
@@ -175,6 +171,27 @@ function buildOrderConfirmationMessage(orderData: OrderData): string {
     return `Got it. I've confirmed your order:\n\n${formatOrderItems(orderData.items)}\n\nTotal: ${formatNaira(orderData.total)}`;
 }
 
+function resolveChromePath(): string | undefined {
+    const configured = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
+    if (configured) return configured;
+
+    return [
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+    ].find((path) => existsSync(path));
+}
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function getLocalUploadPath(imageUrl: string): string | null {
     if (!imageUrl.startsWith("/uploads/")) return null;
     return join(process.cwd(), imageUrl.slice(1));
@@ -197,6 +214,72 @@ async function replyWithProductImage(
     } catch (err: any) {
         logger.warn({ product: product.name, imageUrl: product.imageUrl, err: err.message }, "Failed to send product image");
         return false;
+    }
+}
+
+async function buildReceiptImage(params: {
+    businessName: string;
+    customerName: string;
+    amount: number;
+    items: OrderItem[];
+    transactionRef: string;
+}): Promise<Buffer> {
+    const rows = params.items
+        .map((item) => `
+            <div class="row">
+                <div>
+                    <strong>${escapeHtml(item.name)}</strong>
+                    <span>Qty ${item.qty}</span>
+                </div>
+                <b>${formatNaira(item.price * item.qty)}</b>
+            </div>
+        `)
+        .join("");
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 900px; min-height: 1100px; background: #f7f3ea; font-family: Inter, Arial, sans-serif; color: #18231d; }
+    .receipt { width: 760px; margin: 70px auto; border: 1px solid #e7dfcf; border-radius: 42px; background: #fffdf8; padding: 54px; box-shadow: 0 28px 80px rgba(21, 35, 29, 0.14); }
+    .kicker { color: #7b6b48; font-size: 22px; font-weight: 800; letter-spacing: 0.24em; text-transform: uppercase; }
+    h1 { margin: 18px 0 12px; font-size: 60px; line-height: 1; letter-spacing: -0.06em; }
+    .sub { color: #627168; font-size: 25px; line-height: 1.55; margin: 0 0 42px; }
+    .amount { border-radius: 30px; background: #153d32; color: white; padding: 34px; margin-bottom: 34px; }
+    .amount span { display: block; color: #cfe2d7; font-size: 21px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+    .amount b { display: block; margin-top: 10px; font-size: 70px; line-height: 1; letter-spacing: -0.06em; }
+    .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; padding: 24px 0; border-bottom: 1px solid #eee5d4; }
+    .row strong { display: block; font-size: 28px; line-height: 1.2; }
+    .row span { display: block; color: #627168; font-size: 21px; margin-top: 8px; }
+    .row b { font-size: 25px; white-space: nowrap; }
+    .footer { margin-top: 38px; border-radius: 24px; background: #f7f3ea; padding: 24px; color: #294136; font-size: 20px; line-height: 1.55; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <section class="receipt">
+    <div class="kicker">${escapeHtml(params.businessName)}</div>
+    <h1>Payment confirmed</h1>
+    <p class="sub">Thanks${params.customerName ? `, ${escapeHtml(params.customerName)}` : ""}. We received your payment and will get back to you shortly.</p>
+    <div class="amount"><span>Amount paid</span><b>${formatNaira(params.amount)}</b></div>
+    ${rows}
+    <div class="footer"><strong>Reference:</strong><br />${escapeHtml(params.transactionRef)}</div>
+  </section>
+</body>
+</html>`;
+
+    const browser = await puppeteer.launch({
+        headless: true,
+        executablePath: resolveChromePath(),
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    try {
+        const page = await browser.newPage();
+        await page.setViewport({ width: 900, height: 1100, deviceScaleFactor: 1 });
+        await page.setContent(html, { waitUntil: "networkidle0" });
+        return Buffer.from(await page.screenshot({ type: "png" }));
+    } finally {
+        await browser.close();
     }
 }
 
@@ -574,12 +657,7 @@ async function handleEscalation(
     });
 
     if (seller?.personalPhone && sessionManagerRef) {
-        const profileUrl = isLikelyPublicPhoneNumber(customer.phone)
-            ? `https://wa.me/${customer.phone!.replace(/\D/g, "")}`
-            : null;
-        const customerLine = profileUrl
-            ? `${customer.name || customer.phone}\nProfile: ${profileUrl}`
-            : customer.name || "Unknown";
+        const customerLine = customer.name || customer.phone || "Unknown";
         const sellerNotifyMsg = `🔔 *Customer needs attention*\n\nCustomer: ${customerLine}\nReason: ${reason}\n\nPlease check your business WhatsApp.`;
 
         try {
@@ -692,7 +770,20 @@ export async function handlePaymentSuccess(
     try {
         const customerWaId = customer.phone.replace("+", "") + "@c.us";
         const receiptMsg = `Payment confirmed.\n\nWe received your payment of ${formatNaira(order.totalAmount)}.\n\nOrder summary:\n${itemsList}\n\nWe'll get back to you shortly.`;
-        await client.sendMessage(customerWaId, receiptMsg);
+        try {
+            const receiptImage = await buildReceiptImage({
+                businessName: seller.businessName,
+                customerName: customer.name || "",
+                amount: order.totalAmount,
+                items: orderItems,
+                transactionRef,
+            });
+            const media = new MessageMedia("image/png", receiptImage.toString("base64"), `receipt-${transactionRef}.png`);
+            await client.sendMessage(customerWaId, media, { caption: receiptMsg });
+        } catch (err: any) {
+            logger.warn({ orderId: order.id, err: err.message }, "Failed to generate or send receipt image; sending text receipt");
+            await client.sendMessage(customerWaId, receiptMsg);
+        }
 
         if (order.conversationId) {
             await saveMessage(order.conversationId, "assistant", receiptMsg);
