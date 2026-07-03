@@ -1,18 +1,23 @@
 # OjaDeck
 
-OjaDeck is a WhatsApp commerce control deck for Nigerian small businesses. It lets merchants connect a WhatsApp number, manage a product catalogue, use AI to answer customer DMs, collect orders, and track payment status from one dashboard.
+OjaDeck is a WhatsApp commerce control deck for Nigerian small businesses. It lets merchants connect a WhatsApp number, manage a product catalogue, train an AI assistant, collect orders with Nomba Checkout, track wallet balance, and request payouts from one dashboard.
 
 This is the OjaDeck base for the Nomba Forward Hackathon 2026. The backend can create Nomba Checkout links, verify Nomba webhook signatures, and re-check transactions before marking orders paid.
 
 ## Current Features
 
 - Merchant registration and JWT login
-- Product catalogue CRUD
+- Product catalogue CRUD with product image uploads
 - WhatsApp QR linking and session status
-- AI-assisted customer message handling
-- Order creation and dashboard stats
+- AI-assisted customer message handling with seller training fields
+- Server-side catalogue validation before payment links are created
+- Order creation, payment tracking, and dashboard stats
 - Nomba Checkout payment links
 - Nomba payment webhook endpoint at `POST /api/webhooks/payments`
+- Signed webhook verification with amount/reference/currency checks
+- Wallet ledger credits for paid orders
+- Bank lookup, payout requests, and live Nomba Transfers
+- WhatsApp customer payment confirmations with receipt image fallback
 
 ## Run Locally
 
@@ -44,7 +49,7 @@ cd dashboard
 
 ## Hackathon Build-Sprint Work
 
-- Test checkout creation with real hackathon credentials
-- Confirm webhook delivery after Nomba's update window
-- Validate AI-generated order items against the catalogue
-- Add architecture and security notes for submission
+- Continue production-mode payment and payout smoke tests with low-value transactions
+- Polish wallet/dashboard refresh behaviour and receipt presentation
+- Expand seller AI training controls
+- Prepare demo script, short video, and final submission materials

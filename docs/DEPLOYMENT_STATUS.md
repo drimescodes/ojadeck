@@ -1,8 +1,8 @@
 # OjaDeck Deployment Status
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 
-Note: latest local changes for AI training, product image uploads, catalogue validation, pending-order reset, and escalation profile links are not deployed until pushed and pulled by the GitHub Actions workflow.
+Note: the deployed service is on `main` at commit `2db9597`. The local workspace currently has an unpushed wallet auto-refresh UI change.
 
 ## Current Public URLs
 
@@ -152,7 +152,7 @@ Server env file:
 
 This file is mode `600` and owned by `nomba`.
 
-Current configured shape:
+Configured shape:
 
 ```env
 NODE_ENV=production
@@ -171,7 +171,7 @@ WA_HEADLESS=true
 WA_INIT_TIMEOUT_MS=120000
 WA_AUTH_TIMEOUT_MS=180000
 WA_PROTOCOL_TIMEOUT_MS=300000
-NOMBA_MODE=test
+NOMBA_MODE=live
 NOMBA_TEST_BASE_URL=https://sandbox.nomba.com
 NOMBA_TEST_CLIENT_ID=
 NOMBA_TEST_PRIVATE_KEY=
@@ -184,6 +184,7 @@ NOMBA_LIVE_PARENT_ACCOUNT_ID=
 NOMBA_LIVE_SUB_ACCOUNT_ID=
 NOMBA_WEBHOOK_SECRET=
 NOMBA_AMOUNT_UNIT=naira
+NOMBA_TRANSFER_FEE_NAIRA=20
 ```
 
 Do not commit real credentials. Add Nomba and Gemini credentials directly on the server or through a deployment secret system.
@@ -218,6 +219,12 @@ sudo journalctl -u caddy -f
 1. Verified GitHub repo is reachable over HTTPS.
 2. Created `nomba` server user.
 3. Added SSH public key for the `nomba` user.
+4. Cloned the repository to `/home/nomba/ojadeck`.
+5. Installed Bun, Node.js, Google Chrome stable, Caddy, and system build dependencies.
+6. Configured Caddy HTTPS reverse proxy for `ojadeck.drimes.dev`.
+7. Created and enabled the `ojadeck.service` systemd service.
+8. Added GitHub Actions deployment to pull, install, build, and restart the service on pushes to `main`.
+9. Verified WhatsApp session restoration, Nomba Checkout link creation, signed webhook payment confirmation, wallet ledger credit, and live payout flow.
 4. Installed Caddy, Bun, Node.js, Google Chrome, and build tools.
 5. Added 4GB swap.
 6. Cloned OjaDeck from GitHub.

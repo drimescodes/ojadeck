@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import OjaDeckLogo from './OjaDeckLogo';
 
 export default function Layout({ children }) {
     const navigate = useNavigate();
@@ -28,8 +29,11 @@ export default function Layout({ children }) {
                             <div className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/85">
                                 OjaDeck
                             </div>
-                            <div className="mt-5 text-2xl font-extrabold tracking-[-0.04em] text-white">
-                                Oja<span className="text-[#9ae6b4]">Deck</span>
+                            <div className="mt-5 flex items-center gap-3">
+                                <OjaDeckLogo className="h-11 w-11 shrink-0 drop-shadow-[0_6px_16px_rgba(0,0,0,0.28)]" />
+                                <div className="text-2xl font-extrabold tracking-[-0.04em] text-white">
+                                    Oja<span className="text-[#9ae6b4]">Deck</span>
+                                </div>
                             </div>
                             <p className="mt-2 max-w-[18rem] text-sm leading-6 text-emerald-50/72">
                                 WhatsApp commerce control deck for everyday merchants.

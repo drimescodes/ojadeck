@@ -14,8 +14,11 @@ export default function Wallet() {
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
+    const [lastUpdated, setLastUpdated] = useState(null);
     const confirmingPayoutRef = useRef(false);
     const statusPollRef = useRef(null);
+    const walletRefreshIntervalRef = useRef(null);
+    const walletRefreshInFlightRef = useRef(false);
 
     useBodyScrollLock(Boolean(pendingPayout));
 
@@ -33,6 +36,7 @@ export default function Wallet() {
         setSummary(summaryData);
         setLedger(ledgerData);
         setPayouts(payoutData);
+        setLastUpdated(new Date());
         if (summaryData.payoutAccount) {
             setBankForm({
                 bankCode: summaryData.payoutAccount.bankCode,
@@ -45,6 +49,19 @@ export default function Wallet() {
     };
 
     useEffect(() => {
+        const refreshWalletSilently = async () => {
+            if (document.visibilityState !== 'visible' || walletRefreshInFlightRef.current) return;
+
+            walletRefreshInFlightRef.current = true;
+            try {
+                await loadWallet();
+            } catch {
+                // Background refresh should not interrupt active wallet/payout work.
+            } finally {
+                walletRefreshInFlightRef.current = false;
+            }
+        };
+
         Promise.all([
             loadWallet(),
             api.getBanks().then(setBanks).catch(() => setBanks([])),
@@ -52,8 +69,15 @@ export default function Wallet() {
             .catch((err) => setMessage(err.message))
             .finally(() => setLoading(false));
 
+        walletRefreshIntervalRef.current = setInterval(refreshWalletSilently, 5000);
+        window.addEventListener('focus', refreshWalletSilently);
+        document.addEventListener('visibilitychange', refreshWalletSilently);
+
         return () => {
             if (statusPollRef.current) clearTimeout(statusPollRef.current);
+            if (walletRefreshIntervalRef.current) clearInterval(walletRefreshIntervalRef.current);
+            window.removeEventListener('focus', refreshWalletSilently);
+            document.removeEventListener('visibilitychange', refreshWalletSilently);
         };
     }, []);
 
@@ -187,6 +211,9 @@ export default function Wallet() {
                 <p className="mt-3 max-w-2xl text-sm leading-7 text-[#627168]">
                     Paid orders credit your OjaDeck balance. Withdrawals send live Nomba transfers to your saved bank account.
                 </p>
+                <div className="mt-3 text-xs font-semibold text-[#7b6b48]">
+                    Auto-refreshing wallet data{lastUpdated ? ` - last updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}.
+                </div>
             </div>
 
             {message && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
+import OjaDeckLogo from '../components/OjaDeckLogo';
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -62,8 +63,11 @@ export default function Login() {
 
                 <div className="p-6 sm:p-8 lg:p-10">
                     <div className="mx-auto w-full max-w-md">
-                        <div className="inline-flex items-center rounded-full border border-[#d8cfbc] bg-[#f4efe5] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#385347]">
-                            OjaDeck
+                        <div className="flex items-center gap-3">
+                            <OjaDeckLogo className="h-10 w-10 shrink-0" />
+                            <div className="text-2xl font-extrabold tracking-[-0.04em] text-[#18231d]">
+                                Oja<span className="text-[#1f9d63]">Deck</span>
+                            </div>
                         </div>
                         <h2 className="mt-6 text-4xl font-extrabold tracking-[-0.05em] text-[#18231d]">
                             Welcome back
