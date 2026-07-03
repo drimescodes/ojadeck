@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export default function Catalogue() {
     const [products, setProducts] = useState([]);
@@ -9,6 +11,8 @@ export default function Catalogue() {
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState('');
     const [loading, setLoading] = useState(true);
+
+    useBodyScrollLock(showModal);
 
     const loadProducts = async () => {
         try {
@@ -186,9 +190,9 @@ export default function Catalogue() {
                 </div>
             )}
 
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#15231d]/45 px-4 py-4 backdrop-blur-sm sm:py-8" onClick={() => setShowModal(false)}>
-                    <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[30px] border border-[#e8decc] bg-[#fffdf8] shadow-[0_24px_70px_rgba(21,35,29,0.18)] sm:max-h-[calc(100vh-4rem)]" onClick={(e) => e.stopPropagation()}>
+            {showModal && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#15231d]/45 px-4 py-4 backdrop-blur-sm sm:py-8" onClick={() => setShowModal(false)}>
+                    <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[30px] border border-[#e8decc] bg-[#fffdf8] shadow-[0_24px_70px_rgba(21,35,29,0.18)] sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
                         <div className="shrink-0 px-6 pt-6 md:px-7 md:pt-7">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
                                 {editing ? 'Edit Product' : 'Add Product'}
@@ -277,7 +281,8 @@ export default function Catalogue() {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

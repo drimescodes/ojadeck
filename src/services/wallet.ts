@@ -182,6 +182,20 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
         throw new Error("Insufficient available balance.");
     }
 
+    const claimed = await db
+        .update(payouts)
+        .set({ status: "processing", updatedAt: new Date(), confirmedAt: new Date() })
+        .where(and(
+            eq(payouts.id, payout.id),
+            eq(payouts.sellerId, sellerId),
+            eq(payouts.status, "pending_confirmation")
+        ))
+        .returning({ id: payouts.id });
+
+    if (claimed.length === 0) {
+        throw new Error("Payout is already being processed.");
+    }
+
     await createLedgerEntry({
         sellerId,
         type: "payout_requested",
@@ -189,11 +203,6 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
         reference: `payout:${payout.id}:debit`,
         metadata: { payoutId: payout.id, merchantTxRef: payout.merchantTxRef },
     });
-
-    await db
-        .update(payouts)
-        .set({ status: "processing", updatedAt: new Date(), confirmedAt: new Date() })
-        .where(eq(payouts.id, payout.id));
 
     try {
         const response = await transferToBank({
@@ -241,4 +250,40 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
     }
 
     return db.query.payouts.findFirst({ where: eq(payouts.id, payout.id) });
+}
+
+export async function markPayoutSuccessFromWebhook(params: {
+    merchantTxRef: string;
+    nombaStatus?: string | null;
+    nombaTransferId?: string | null;
+}) {
+    const payout = await db.query.payouts.findFirst({
+        where: eq(payouts.merchantTxRef, params.merchantTxRef),
+    });
+
+    if (!payout) {
+        logger.warn({ merchantTxRef: params.merchantTxRef }, "Payout webhook received for unknown transfer reference");
+        return;
+    }
+
+    await db
+        .update(ledgerEntries)
+        .set({ status: "void" })
+        .where(and(
+            eq(ledgerEntries.sellerId, payout.sellerId),
+            eq(ledgerEntries.reference, `payout:${payout.id}:reversal`)
+        ));
+
+    await db
+        .update(payouts)
+        .set({
+            status: "success",
+            nombaStatus: params.nombaStatus || "SUCCESS",
+            nombaTransferId: params.nombaTransferId || payout.nombaTransferId,
+            errorMessage: null,
+            updatedAt: new Date(),
+        })
+        .where(eq(payouts.id, payout.id));
+
+    logger.info({ payoutId: payout.id, merchantTxRef: payout.merchantTxRef }, "Payout success webhook processed");
 }

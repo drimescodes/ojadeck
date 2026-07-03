@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export default function Wallet() {
     const [summary, setSummary] = useState(null);
@@ -12,6 +14,9 @@ export default function Wallet() {
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
+    const confirmingPayoutRef = useRef(false);
+
+    useBodyScrollLock(Boolean(pendingPayout));
 
     const selectedBank = useMemo(
         () => banks.find((bank) => bank.code === bankForm.bankCode),
@@ -48,12 +53,16 @@ export default function Wallet() {
 
     const handleBankChange = (e) => {
         const { name, value } = e.target;
-        if (name === 'bankCode') {
-            const bank = banks.find((item) => item.code === value);
-            setBankForm({ ...bankForm, bankCode: value, bankName: bank?.name || '', accountName: '' });
-            return;
-        }
         setBankForm({ ...bankForm, [name]: value });
+    };
+
+    const handleBankSelect = (bank) => {
+        setBankForm({
+            ...bankForm,
+            bankCode: bank.code,
+            bankName: bank.name,
+            accountName: '',
+        });
     };
 
     const handleLookup = async () => {
@@ -107,12 +116,14 @@ export default function Wallet() {
     };
 
     const handleConfirmPayout = async () => {
-        if (!pendingPayout) return;
+        if (!pendingPayout || busy || confirmingPayoutRef.current) return;
+        const payout = pendingPayout;
+        confirmingPayoutRef.current = true;
+        setPendingPayout(null);
         setBusy(true);
-        setMessage('');
+        setMessage('Submitting payout to Nomba...');
         try {
-            await api.confirmPayout(pendingPayout.id);
-            setPendingPayout(null);
+            await api.confirmPayout(payout.id);
             setWithdrawAmount('');
             await loadWallet();
             setMessage('Payout submitted to Nomba.');
@@ -120,6 +131,7 @@ export default function Wallet() {
             setMessage(err.message);
             await loadWallet();
         } finally {
+            confirmingPayoutRef.current = false;
             setBusy(false);
         }
     };
@@ -176,17 +188,12 @@ export default function Wallet() {
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">Payout Account</div>
                     <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">Bank details</h2>
                     <div className="mt-5 grid gap-4">
-                        <select
-                            className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
-                            name="bankCode"
+                        <BankSearchSelect
+                            banks={banks}
                             value={bankForm.bankCode}
-                            onChange={handleBankChange}
-                        >
-                            <option value="">Select bank</option>
-                            {banks.map((bank) => (
-                                <option key={bank.code} value={bank.code}>{bank.name}</option>
-                            ))}
-                        </select>
+                            bankName={bankForm.bankName}
+                            onSelect={handleBankSelect}
+                        />
                         <input
                             className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
                             name="accountNumber"
@@ -237,25 +244,112 @@ export default function Wallet() {
                 <HistoryTable title="Ledger Activity" rows={ledger} kind="ledger" />
             </section>
 
-            {pendingPayout && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#15231d]/45 px-4 backdrop-blur-sm">
-                    <div className="w-full max-w-md rounded-[28px] border border-[#e8decc] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(21,35,29,0.18)]">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">Confirm Live Transfer</div>
-                        <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">{pendingPayout.amountDisplay}</h2>
-                        <p className="mt-3 text-sm leading-7 text-[#627168]">
-                            Send this payout to {pendingPayout.accountName} at {pendingPayout.bankName}, account {pendingPayout.accountNumber}.
-                        </p>
-                        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                            <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136]" onClick={() => setPendingPayout(null)} disabled={busy}>
-                                Cancel
+            {pendingPayout && typeof document !== 'undefined' && createPortal(
+                <PayoutConfirmModal
+                    payout={pendingPayout}
+                    busy={busy}
+                    onCancel={() => setPendingPayout(null)}
+                    onConfirm={handleConfirmPayout}
+                />,
+                document.body
+            )}
+        </div>
+    );
+}
+
+function BankSearchSelect({ banks, value, bankName, onSelect }) {
+    const [query, setQuery] = useState('');
+    const [open, setOpen] = useState(false);
+    const selectedBank = useMemo(
+        () => banks.find((bank) => bank.code === value),
+        [banks, value]
+    );
+    const selectedLabel = selectedBank?.name || bankName || '';
+    const normalizedQuery = query.trim().toLowerCase();
+    const filteredBanks = useMemo(() => {
+        if (!normalizedQuery) return banks.slice(0, 40);
+
+        return banks
+            .filter((bank) => {
+                const name = bank.name.toLowerCase();
+                const code = bank.code.toLowerCase();
+                return name.includes(normalizedQuery) || code.includes(normalizedQuery);
+            })
+            .slice(0, 40);
+    }, [banks, normalizedQuery]);
+
+    const chooseBank = (bank) => {
+        onSelect(bank);
+        setQuery('');
+        setOpen(false);
+    };
+
+    return (
+        <div className="relative" onBlur={() => setOpen(false)}>
+            <div className={`flex items-center gap-2 rounded-2xl border bg-[#fffdf8] px-4 py-2.5 transition ${open ? 'border-[#1f9d63] ring-4 ring-[#1f9d63]/10' : 'border-[#d9d1bf]'}`}>
+                <input
+                    className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#18231d] outline-none placeholder:text-[#8d8b80]"
+                    value={open ? query : selectedLabel}
+                    onFocus={() => setOpen(true)}
+                    onChange={(e) => {
+                        setQuery(e.target.value);
+                        setOpen(true);
+                    }}
+                    placeholder={selectedLabel || 'Search bank'}
+                />
+                {value ? (
+                    <span className="shrink-0 rounded-full bg-[#edf6f0] px-2.5 py-1 text-[11px] font-bold text-[#153d32]">
+                        {value}
+                    </span>
+                ) : null}
+            </div>
+
+            {open && (
+                <div
+                    className="absolute left-0 right-0 top-[calc(100%+8px)] z-30 overflow-hidden rounded-2xl border border-[#e7dfcf] bg-white shadow-[0_18px_50px_rgba(21,35,29,0.14)]"
+                    onMouseDown={(e) => e.preventDefault()}
+                >
+                    <div className="max-h-64 overflow-y-auto py-2">
+                        {filteredBanks.length === 0 ? (
+                            <div className="px-4 py-5 text-sm font-medium text-[#627168]">
+                                No banks found.
+                            </div>
+                        ) : filteredBanks.map((bank) => (
+                            <button
+                                key={bank.code}
+                                type="button"
+                                className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition hover:bg-[#f7f1e5] ${bank.code === value ? 'bg-[#edf6f0] text-[#153d32]' : 'text-[#18231d]'}`}
+                                onMouseDown={() => chooseBank(bank)}
+                            >
+                                <span className="min-w-0 truncate font-semibold">{bank.name}</span>
+                                <span className="shrink-0 text-xs font-bold text-[#7b6b48]">{bank.code}</span>
                             </button>
-                            <button className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60" onClick={handleConfirmPayout} disabled={busy}>
-                                Confirm Transfer
-                            </button>
-                        </div>
+                        ))}
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+function PayoutConfirmModal({ payout, busy, onCancel, onConfirm }) {
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#15231d]/45 px-4 py-6 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-[28px] border border-[#e8decc] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(21,35,29,0.18)] max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">Confirm Live Transfer</div>
+                <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">{payout.amountDisplay}</h2>
+                <p className="mt-3 text-sm leading-7 text-[#627168]">
+                    Send this payout to {payout.accountName} at {payout.bankName}, account {payout.accountNumber}.
+                </p>
+                <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                    <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136]" onClick={onCancel} disabled={busy}>
+                        Cancel
+                    </button>
+                    <button className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60" onClick={onConfirm} disabled={busy}>
+                        Confirm Transfer
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

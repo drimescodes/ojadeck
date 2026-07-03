@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { handlePaymentSuccess } from "../services/message-handler";
+import { markPayoutSuccessFromWebhook } from "../services/wallet";
 import logger from "../utils/logger";
 import crypto from "node:crypto";
 
@@ -50,6 +51,15 @@ function verifyNombaWebhook(body: any, signature: string | undefined, timestamp:
     return signaturesMatch(expected.toLowerCase(), signature.toLowerCase());
 }
 
+function extractPayoutReference(body: any): string {
+    return safeString(
+        body?.data?.transaction?.meta?.merchantTxRef
+        || body?.data?.transaction?.merchantTxRef
+        || body?.data?.meta?.merchantTxRef
+        || body?.data?.merchantTxRef
+    );
+}
+
 // Payment webhook — receives payment notifications
 webhooksRouter.post("/payments", async (c) => {
     try {
@@ -81,6 +91,22 @@ webhooksRouter.post("/payments", async (c) => {
             await handlePaymentSuccess(txnRef, Number(amount), { transactionId, currency });
 
             logger.info({ txnRef, amount, transactionId }, "Payment success processed");
+        }
+
+        if (body.event_type === "payout_success") {
+            const merchantTxRef = extractPayoutReference(body);
+            const transaction = body.data?.transaction || {};
+
+            if (!merchantTxRef) {
+                logger.warn({ requestId: body.requestId }, "Payout webhook missing merchant transfer reference");
+                return c.json({ received: true, ignored: "missing_merchant_tx_ref" });
+            }
+
+            await markPayoutSuccessFromWebhook({
+                merchantTxRef,
+                nombaStatus: transaction.status || transaction.transactionStatus || transaction.responseMessage,
+                nombaTransferId: transaction.transactionId || transaction.id,
+            });
         }
 
         return c.json({ received: true });

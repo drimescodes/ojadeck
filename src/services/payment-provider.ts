@@ -142,6 +142,21 @@ function amountForTransfer(kobo: number): string | number {
     return Number((kobo / 100).toFixed(2));
 }
 
+function nombaOperationSucceeded(response: Response, data: any): boolean {
+    if (!response.ok) return false;
+
+    const code = data?.code === undefined ? "" : String(data.code).toLowerCase();
+    const status = data?.status;
+    const description = data?.description === undefined ? "" : String(data.description).toLowerCase();
+    const message = data?.message === undefined ? "" : String(data.message).toLowerCase();
+
+    return code === "00"
+        || code === "200"
+        || status === true
+        || description === "success"
+        || message === "success";
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
     const text = await response.text();
     try {
@@ -375,7 +390,7 @@ export async function transferToBank(params: TransferToBankParams): Promise<any>
     });
 
     const data = await readJsonResponse<any>(response);
-    if (!response.ok || (data.code && data.code !== "00")) {
+    if (!nombaOperationSucceeded(response, data)) {
         logger.warn({ status: response.status, response: data }, "Nomba bank transfer failed");
         throw new Error(`Nomba bank transfer failed: ${data.description || response.statusText}`);
     }
