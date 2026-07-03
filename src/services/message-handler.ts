@@ -11,6 +11,7 @@ import {
     updateConversationState,
 } from "./ai-engine";
 import { getNombaAmountUnit, initiatePayment, verifyTransaction } from "./payment-provider";
+import { creditOrderPayment } from "./wallet";
 import { generateId, phoneFromWaId, formatNaira } from "../utils/helpers";
 import logger from "../utils/logger";
 import { join } from "node:path";
@@ -659,6 +660,13 @@ export async function handlePaymentSuccess(
         .set({ status: "paid", paidAt: new Date() })
         .where(eq(orders.id, order.id));
 
+    await creditOrderPayment({
+        sellerId: order.sellerId,
+        orderId: order.id,
+        transactionRef,
+        amount: order.totalAmount,
+    });
+
     // Update conversation state
     if (order.conversationId) {
         await updateConversationState(order.conversationId, "completed");
@@ -683,12 +691,13 @@ export async function handlePaymentSuccess(
     // Send receipt to customer
     try {
         const customerWaId = customer.phone.replace("+", "") + "@c.us";
-        const receiptMsg = `✅ *Payment Confirmed!*\n\nThank you for your payment of ${formatNaira(order.totalAmount)}.\n\n*Order Summary:*\n${itemsList}\n\n${seller.businessName} will process your order shortly. 🙏`;
+        const receiptMsg = `Payment confirmed.\n\nWe received your payment of ${formatNaira(order.totalAmount)}.\n\nOrder summary:\n${itemsList}\n\nWe'll get back to you shortly.`;
         await client.sendMessage(customerWaId, receiptMsg);
 
         if (order.conversationId) {
             await saveMessage(order.conversationId, "assistant", receiptMsg);
         }
+        logger.info({ orderId: order.id, customerId: customer.id }, "Payment receipt sent to customer");
     } catch (err: any) {
         logger.warn({ err: err.message }, "Failed to send receipt to customer");
     }
@@ -697,8 +706,9 @@ export async function handlePaymentSuccess(
     try {
         if (seller.personalPhone) {
             const sellerWaId = seller.personalPhone.replace("+", "") + "@c.us";
-            const notifyMsg = `💰 *New Paid Order!*\n\nCustomer: ${customer.name || customer.phone}\nItems:\n${itemsList}\nAmount: ${formatNaira(order.totalAmount)}\nRef: ${transactionRef}`;
+            const notifyMsg = `New paid order.\n\nCustomer: ${customer.name || customer.phone}\nItems:\n${itemsList}\nAmount: ${formatNaira(order.totalAmount)}\nRef: ${transactionRef}`;
             await client.sendMessage(sellerWaId, notifyMsg);
+            logger.info({ orderId: order.id, sellerId: seller.id }, "Paid order notification sent to seller");
         }
     } catch (err: any) {
         logger.warn({ err: err.message }, "Failed to notify seller of payment");

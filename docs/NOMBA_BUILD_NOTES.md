@@ -60,7 +60,8 @@ Reported by participants and organizers:
 6. Confirm transaction verification before marking orders paid.
 7. After deploying the latest local changes, smoke-test catalogue validation before payment creation.
 8. After deploying the latest local changes, smoke-test product image uploads and WhatsApp image replies.
-9. Add an architecture/security note for the progress and final submissions.
+9. Smoke-test bank lookup and a small live Nomba transfer from the Wallet page.
+10. Use `ARCHITECTURE.md` as the architecture/security note for progress and final submissions.
 
 ## Latest Local Product Notes
 
@@ -69,3 +70,5 @@ Reported by participants and organizers:
 - Seller escalation notifications include a `https://wa.me/...` profile link when the customer phone is available.
 - AI training fields live on the seller profile and are injected into the model prompt as tone, business context, and merchant rules.
 - Product images are uploaded locally and should be served from `/uploads/products/...` once deployed.
+- Wallet ledger credits sellers on paid orders and supports merchant payout requests through Nomba Transfers.
+- Payouts are two-step: create a withdrawal request, then confirm before sending real money.

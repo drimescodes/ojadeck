@@ -90,3 +90,57 @@ export const orders = sqliteTable("orders", {
     createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
     paidAt: integer("paid_at", { mode: "timestamp" }),
 });
+
+// ─── Merchant Wallet Ledger ─────────────────────────────
+export const ledgerEntries = sqliteTable("ledger_entries", {
+    id: text("id").primaryKey(),
+    sellerId: text("seller_id")
+        .notNull()
+        .references(() => sellers.id, { onDelete: "cascade" }),
+    type: text("type", {
+        enum: ["order_paid", "payout_requested", "payout_failed", "manual_adjustment"],
+    }).notNull(),
+    amount: integer("amount").notNull(), // signed kobo: credits positive, debits negative
+    reference: text("reference").notNull().unique(),
+    status: text("status", { enum: ["posted", "void"] }).notNull().default("posted"),
+    metadata: text("metadata"), // JSON string
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// ─── Payout Accounts ────────────────────────────────────
+export const payoutAccounts = sqliteTable("payout_accounts", {
+    id: text("id").primaryKey(),
+    sellerId: text("seller_id")
+        .notNull()
+        .references(() => sellers.id, { onDelete: "cascade" }),
+    bankCode: text("bank_code").notNull(),
+    bankName: text("bank_name").notNull(),
+    accountNumber: text("account_number").notNull(),
+    accountName: text("account_name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// ─── Payouts ─────────────────────────────────────────────
+export const payouts = sqliteTable("payouts", {
+    id: text("id").primaryKey(),
+    sellerId: text("seller_id")
+        .notNull()
+        .references(() => sellers.id, { onDelete: "cascade" }),
+    payoutAccountId: text("payout_account_id").references(() => payoutAccounts.id),
+    amount: integer("amount").notNull(), // kobo
+    status: text("status", {
+        enum: ["pending_confirmation", "processing", "success", "failed"],
+    }).notNull().default("pending_confirmation"),
+    merchantTxRef: text("merchant_tx_ref").notNull().unique(),
+    bankCode: text("bank_code").notNull(),
+    bankName: text("bank_name").notNull(),
+    accountNumber: text("account_number").notNull(),
+    accountName: text("account_name").notNull(),
+    nombaTransferId: text("nomba_transfer_id"),
+    nombaStatus: text("nomba_status"),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+    confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+});

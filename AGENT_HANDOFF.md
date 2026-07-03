@@ -2,11 +2,11 @@
 
 ## Product
 
-OjaDeck is a WhatsApp commerce control deck for Nigerian small businesses. Merchants can register, connect a business WhatsApp number, publish a catalogue, let an AI assistant answer customer DMs, collect orders, generate payment links, and track paid orders from a dashboard.
+OjaDeck is a WhatsApp commerce control deck for Nigerian small businesses. Merchants can register, connect a business WhatsApp number, publish a catalogue, let an AI assistant answer customer DMs, collect orders, generate payment links, track paid orders, and withdraw merchant balances from a dashboard.
 
 This repository is now the OjaDeck base for the Nomba Forward Hackathon 2026. Nomba Checkout order creation, webhook signature verification, and server-side transaction verification are wired in the backend.
 
-Latest local work, not pushed/deployed yet: lightweight AI training fields, product image uploads, catalogue-backed checkout validation, pending-payment reset/resend behavior, and clickable WhatsApp profile links in escalation notifications.
+Latest local work, not pushed/deployed yet: merchant wallet ledger, Nomba bank lookup, live payout confirmation flow, architecture note, and payment receipt copy/logging.
 
 ## Demo Flow
 
@@ -17,7 +17,8 @@ Latest local work, not pushed/deployed yet: lightweight AI training fields, prod
 5. If the customer asks about a specific product with an uploaded image, the bot sends the product image with the reply.
 6. Confirmed orders are validated against the seller catalogue before checkout creation.
 7. Payment provider generates a checkout link.
-8. Payment webhook confirms payment, sends customer receipt, and notifies the seller.
+8. Payment webhook confirms payment, credits the seller wallet, sends customer receipt, and notifies the seller.
+9. Seller withdraws available wallet balance to a verified bank account through Nomba Transfers.
 
 ## Tech Stack
 
@@ -29,7 +30,7 @@ Latest local work, not pushed/deployed yet: lightweight AI training fields, prod
 | WhatsApp | `whatsapp-web.js` | Multi-session QR linking with `LocalAuth` |
 | AI | Google Gemini | Per-seller catalogue prompt and conversation history |
 | AI fallback | OpenRouter | Free-model fallback chain for Gemini failures |
-| Payments | Nomba Checkout | Auth token issuance, hosted checkout links, webhook verification |
+| Payments | Nomba Checkout + Transfers | Hosted checkout, webhook verification, internal ledger, merchant payouts |
 | Dashboard | React + Vite | Served by backend in production |
 | Auth | JWT | Custom Bun HMAC utility |
 | Uploads | Local disk | Product images stored under `uploads/products/...` and served from `/uploads/...` |
@@ -47,18 +48,21 @@ ojadeck/
 │   ├── routes/
 │   │   ├── products.ts
 │   │   ├── orders.ts
+│   │   ├── wallet.ts
 │   │   ├── webhooks.ts
 │   │   └── whatsapp.ts
 │   ├── services/
 │   │   ├── ai-engine.ts
 │   │   ├── message-handler.ts
 │   │   ├── payment-provider.ts
+│   │   ├── wallet.ts
 │   │   └── session-manager.ts
 │   └── utils/
 ├── dashboard/
 │   └── src/
 ├── data/
 ├── uploads/
+├── ARCHITECTURE.md
 ├── drizzle.config.ts
 ├── .env.example
 └── package.json
@@ -82,6 +86,9 @@ ojadeck/
 - Checkout creation validates AI-confirmed items against in-stock catalogue products and recomputes totals from DB prices.
 - Pending payment links can be resent; starting a new order cancels older pending links in that conversation.
 - Escalation notifications include a clickable `https://wa.me/...` customer profile link when the customer phone is known.
+- Architecture and security note is available at `ARCHITECTURE.md`.
+- Merchant wallet tracks paid-order credits through immutable ledger entries.
+- Wallet dashboard supports verified payout accounts, withdrawal review, live Nomba transfer confirmation, payout history, and ledger activity.
 
 ## Key Routes
 
@@ -103,6 +110,14 @@ PUT/DELETE /api/products/:id
 POST /api/products/:id/image
 GET /api/orders
 GET /api/orders/stats
+GET /api/wallet/summary
+GET /api/wallet/ledger
+GET /api/wallet/payouts
+GET /api/wallet/banks
+POST /api/wallet/payout-account/lookup
+POST /api/wallet/payout-account
+POST /api/wallet/payouts
+POST /api/wallet/payouts/:id/confirm
 POST /api/whatsapp/connect
 POST /api/whatsapp/disconnect
 GET  /api/whatsapp/status
@@ -173,5 +188,5 @@ Do during the official hackathon build period:
 2. Confirm webhook delivery after Nomba's form update window.
 3. Smoke-test product image upload and WhatsApp image sending on the VPS after deployment.
 4. Smoke-test catalogue validation by asking for an unavailable product and confirming no checkout link is created.
-5. Add `ARCHITECTURE.md` with auth, webhook, data handling, uploads, and reliability notes.
-6. Add demo seed data and hosted MVP instructions.
+5. Add demo seed data and hosted MVP instructions.
+6. Prepare final demo script and video outline.

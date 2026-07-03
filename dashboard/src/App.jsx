@@ -4,6 +4,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Catalogue from './pages/Catalogue';
 import Orders from './pages/Orders';
+import Wallet from './pages/Wallet';
 import WhatsAppSetup from './pages/WhatsAppSetup';
 import Settings from './pages/Settings';
 import Layout from './components/Layout';
@@ -29,6 +30,7 @@ export default function App() {
                                     <Route index element={<Dashboard />} />
                                     <Route path="catalogue" element={<Catalogue />} />
                                     <Route path="orders" element={<Orders />} />
+                                    <Route path="wallet" element={<Wallet />} />
                                     <Route path="whatsapp" element={<WhatsAppSetup />} />
                                     <Route path="settings" element={<Settings />} />
                                 </Routes>

@@ -10,6 +10,7 @@ import { setSessionManager } from "./services/message-handler";
 import { authMiddleware } from "./utils/auth";
 import productsRouter from "./routes/products";
 import ordersRouter from "./routes/orders";
+import walletRouter from "./routes/wallet";
 import webhooksRouter from "./routes/webhooks";
 import { createWhatsAppRoutes } from "./routes/whatsapp";
 import jwt from "./utils/jwt";
@@ -189,6 +190,7 @@ protectedApi.put("/sellers/me", async (c) => {
 
 protectedApi.route("/products", productsRouter);
 protectedApi.route("/orders", ordersRouter);
+protectedApi.route("/wallet", walletRouter);
 protectedApi.route("/whatsapp", createWhatsAppRoutes(sessionManager));
 app.route("/api", protectedApi);
 

@@ -36,6 +36,26 @@ interface VerifyTransactionParams {
     orderReference?: string | null;
 }
 
+interface NombaBank {
+    code: string;
+    name: string;
+}
+
+interface LookupBankAccountParams {
+    accountNumber: string;
+    bankCode: string;
+}
+
+interface TransferToBankParams {
+    amount: number; // kobo
+    accountNumber: string;
+    accountName: string;
+    bankCode: string;
+    merchantTxRef: string;
+    narration?: string;
+    senderName?: string;
+}
+
 interface CachedToken {
     value: string;
     expiresAt: number;
@@ -112,6 +132,14 @@ function amountForCheckout(kobo: number): string | number {
     }
 
     return (kobo / 100).toFixed(2);
+}
+
+function amountForTransfer(kobo: number): string | number {
+    if (NOMBA_AMOUNT_UNIT === "kobo") {
+        return kobo;
+    }
+
+    return Number((kobo / 100).toFixed(2));
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -255,4 +283,102 @@ export async function verifyTransaction(params: VerifyTransactionParams): Promis
 
 export function getNombaAmountUnit(): string {
     return NOMBA_AMOUNT_UNIT;
+}
+
+export async function fetchBanks(): Promise<NombaBank[]> {
+    const token = await getAccessToken();
+    const response = await fetch(`${config.baseUrl}/v1/transfers/banks`, {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            accountId: parentAccountIdForApiCalls(),
+        },
+    });
+
+    const data = await readJsonResponse<any>(response);
+    if (!response.ok || (data.code && data.code !== "00")) {
+        logger.warn({ status: response.status, response: data }, "Nomba bank list fetch failed");
+        throw new Error(`Nomba bank list fetch failed: ${data.description || response.statusText}`);
+    }
+
+    const banks = data?.data?.banks || data?.data || [];
+    return Array.isArray(banks)
+        ? banks.map((bank: any) => ({
+            code: String(bank.code || bank.bankCode || ""),
+            name: String(bank.name || bank.bankName || ""),
+        })).filter((bank) => bank.code && bank.name)
+        : [];
+}
+
+export async function lookupBankAccount(params: LookupBankAccountParams): Promise<{ accountNumber: string; accountName: string; bankCode: string }> {
+    const token = await getAccessToken();
+    const response = await fetch(`${config.baseUrl}/v1/transfers/bank/lookup`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            accountId: parentAccountIdForApiCalls(),
+        },
+        body: JSON.stringify({
+            accountNumber: params.accountNumber,
+            bankCode: params.bankCode,
+        }),
+    });
+
+    const data = await readJsonResponse<any>(response);
+    if (!response.ok || (data.code && data.code !== "00")) {
+        logger.warn({ status: response.status, response: data }, "Nomba bank account lookup failed");
+        throw new Error(`Nomba bank account lookup failed: ${data.description || response.statusText}`);
+    }
+
+    const account = data?.data?.account || data?.data || {};
+    const accountName = account.accountName || account.name || account.account_name;
+    const accountNumber = account.accountNumber || account.number || params.accountNumber;
+
+    if (!accountName) {
+        throw new Error("Nomba bank account lookup did not return an account name.");
+    }
+
+    return {
+        accountNumber: String(accountNumber),
+        accountName: String(accountName),
+        bankCode: params.bankCode,
+    };
+}
+
+export async function transferToBank(params: TransferToBankParams): Promise<any> {
+    const token = await getAccessToken();
+    const subAccountId = config.subAccountId;
+    if (!subAccountId) {
+        throw new Error("Nomba sub-account ID is required for merchant payouts.");
+    }
+
+    const transferAmount = amountForTransfer(params.amount);
+    logger.info({ merchantTxRef: params.merchantTxRef, amount: params.amount, transferAmount, mode: config.mode }, "Creating Nomba bank transfer");
+
+    const response = await fetch(`${config.baseUrl}/v2/transfers/bank/${subAccountId}`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            accountId: parentAccountIdForApiCalls(),
+        },
+        body: JSON.stringify({
+            amount: transferAmount,
+            accountNumber: params.accountNumber,
+            accountName: params.accountName,
+            bankCode: params.bankCode,
+            merchantTxRef: params.merchantTxRef,
+            senderName: params.senderName || "OjaDeck",
+            narration: params.narration || "OjaDeck merchant payout",
+        }),
+    });
+
+    const data = await readJsonResponse<any>(response);
+    if (!response.ok || (data.code && data.code !== "00")) {
+        logger.warn({ status: response.status, response: data }, "Nomba bank transfer failed");
+        throw new Error(`Nomba bank transfer failed: ${data.description || response.statusText}`);
+    }
+
+    return data;
 }

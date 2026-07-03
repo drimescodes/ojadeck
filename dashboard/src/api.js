@@ -48,6 +48,16 @@ export const api = {
     getOrders: () => request('/orders'),
     getOrderStats: () => request('/orders/stats'),
 
+    // Wallet
+    getWalletSummary: () => request('/wallet/summary'),
+    getWalletLedger: () => request('/wallet/ledger'),
+    getPayouts: () => request('/wallet/payouts'),
+    getBanks: () => request('/wallet/banks'),
+    lookupPayoutAccount: (data) => request('/wallet/payout-account/lookup', { method: 'POST', body: JSON.stringify(data) }),
+    savePayoutAccount: (data) => request('/wallet/payout-account', { method: 'POST', body: JSON.stringify(data) }),
+    createPayout: (data) => request('/wallet/payouts', { method: 'POST', body: JSON.stringify(data) }),
+    confirmPayout: (id) => request(`/wallet/payouts/${id}/confirm`, { method: 'POST' }),
+
     // WhatsApp
     connectWhatsApp: () => request('/whatsapp/connect', { method: 'POST' }),
     disconnectWhatsApp: () => request('/whatsapp/disconnect', { method: 'POST' }),

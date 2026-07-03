@@ -15,6 +15,7 @@ export default function Layout({ children }) {
         { to: '/whatsapp', label: 'WhatsApp', kicker: 'Channel' },
         { to: '/catalogue', label: 'Catalogue', kicker: 'Products' },
         { to: '/orders', label: 'Orders', kicker: 'Sales' },
+        { to: '/wallet', label: 'Wallet', kicker: 'Payouts' },
         { to: '/settings', label: 'Settings', kicker: 'Profile' },
     ];
 

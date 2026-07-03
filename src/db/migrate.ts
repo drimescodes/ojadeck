@@ -78,6 +78,53 @@ export function migrate(): void {
     CREATE INDEX IF NOT EXISTS idx_conversations_customer_seller ON conversations(customer_id, seller_id);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(seller_id);
+
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id TEXT PRIMARY KEY,
+      seller_id TEXT NOT NULL REFERENCES sellers(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      reference TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'posted',
+      metadata TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS payout_accounts (
+      id TEXT PRIMARY KEY,
+      seller_id TEXT NOT NULL REFERENCES sellers(id) ON DELETE CASCADE,
+      bank_code TEXT NOT NULL,
+      bank_name TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS payouts (
+      id TEXT PRIMARY KEY,
+      seller_id TEXT NOT NULL REFERENCES sellers(id) ON DELETE CASCADE,
+      payout_account_id TEXT REFERENCES payout_accounts(id),
+      amount INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending_confirmation',
+      merchant_tx_ref TEXT NOT NULL UNIQUE,
+      bank_code TEXT NOT NULL,
+      bank_name TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      nomba_transfer_id TEXT,
+      nomba_status TEXT,
+      error_message TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch()),
+      confirmed_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_seller ON ledger_entries(seller_id);
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_reference ON ledger_entries(reference);
+    CREATE INDEX IF NOT EXISTS idx_payout_accounts_seller ON payout_accounts(seller_id);
+    CREATE INDEX IF NOT EXISTS idx_payouts_seller ON payouts(seller_id);
+    CREATE INDEX IF NOT EXISTS idx_payouts_merchant_ref ON payouts(merchant_tx_ref);
   `);
 
   const sellerColumns = sqlite
@@ -128,6 +175,23 @@ export function migrate(): void {
   }
 
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_orders_txn_ref ON orders(payment_reference);`);
+
+  sqlite.exec(`
+    INSERT OR IGNORE INTO ledger_entries (
+      id, seller_id, type, amount, reference, status, metadata, created_at
+    )
+    SELECT
+      lower(hex(randomblob(16))),
+      seller_id,
+      'order_paid',
+      total_amount,
+      'order:' || id,
+      'posted',
+      '{"backfilled":true}',
+      COALESCE(paid_at, created_at, unixepoch())
+    FROM orders
+    WHERE status = 'paid';
+  `);
 
   logger.info("Database migrations complete");
 }
