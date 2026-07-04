@@ -1,151 +1,94 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../api';
+import { queryKeys } from '../query';
 
 export default function WhatsAppSetup() {
-    const [status, setStatus] = useState('none');
-    const [qr, setQr] = useState(null);
-    const [error, setError] = useState(null);
-    const [progress, setProgress] = useState(null);
-    const [autoReplyEnabled, setAutoReplyEnabled] = useState(true);
-    const [loading, setLoading] = useState(false);
-    const pollRef = useRef(null);
-    const pollIntervalRef = useRef(null);
+    const queryClient = useQueryClient();
+    const [actionError, setActionError] = useState(null);
+    const { data: session, error: statusError } = useQuery({
+        queryKey: queryKeys.whatsappStatus,
+        queryFn: api.getWhatsAppStatus,
+        refetchInterval: (query) => {
+            const sessionStatus = query.state.data?.status;
+            if (sessionStatus === 'connected') return 15000;
+            if (['initializing', 'qr_ready', 'authenticated', 'disconnected'].includes(sessionStatus)) return 2000;
+            return false;
+        },
+    });
 
-    const applySessionState = (data) => {
-        setStatus(data.status);
-        setQr(data.qr || null);
-        setError(data.error || null);
-        setProgress(data.progress || null);
-        if (data.autoReplyEnabled !== undefined) {
-            setAutoReplyEnabled(data.autoReplyEnabled);
-        }
-
-        if (data.qr) {
-            setLoading(false);
-        }
-
-        if (data.status === 'connected') {
-            setQr(null);
-            setLoading(false);
-            const seller = JSON.parse(localStorage.getItem('seller') || '{}');
-            seller.whatsappConnected = true;
-            localStorage.setItem('seller', JSON.stringify(seller));
-            return;
-        }
-
-        if (data.status === 'none') {
-            setLoading(false);
-        }
+    const updateSession = (data) => {
+        queryClient.setQueryData(queryKeys.whatsappStatus, (current) => ({
+            ...current,
+            ...data,
+        }));
     };
 
-    const stopPolling = () => {
-        if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-        }
-        pollIntervalRef.current = null;
-    };
+    const connectMutation = useMutation({
+        mutationFn: api.connectWhatsApp,
+        onSuccess: async (data) => {
+            updateSession(data);
+            await queryClient.refetchQueries({ queryKey: queryKeys.whatsappStatus });
+        },
+    });
 
-    const syncStatus = async () => {
-        const data = await api.getWhatsAppStatus();
-        applySessionState(data);
+    const disconnectMutation = useMutation({
+        mutationFn: api.disconnectWhatsApp,
+        onSuccess: () => {
+            updateSession({
+                status: 'none',
+                qr: null,
+                error: null,
+                progress: null,
+                autoReplyEnabled: true,
+            });
+        },
+    });
 
-        const nextInterval = data.status === 'connected'
-            ? 15000
-            : ['initializing', 'qr_ready', 'authenticated', 'disconnected'].includes(data.status)
-                ? 2000
-                : null;
+    const pauseResumeMutation = useMutation({
+        mutationFn: () => session?.autoReplyEnabled === false ? api.resumeWhatsAppBot() : api.pauseWhatsAppBot(),
+        onSuccess: (data) => updateSession(data),
+    });
 
-        if (!nextInterval) {
-            stopPolling();
-            return data;
-        }
-
-        if (pollIntervalRef.current !== nextInterval) {
-            startPolling(nextInterval);
-        }
-
-        return data;
-    };
-
-    const startPolling = (intervalMs) => {
-        if (pollRef.current && pollIntervalRef.current === intervalMs) return;
-        stopPolling();
-        pollIntervalRef.current = intervalMs;
-        pollRef.current = setInterval(async () => {
-            try {
-                await syncStatus();
-            } catch (err) {
-                stopPolling();
-                setLoading(false);
-                setError(err.message || 'Failed to fetch WhatsApp status');
-                setStatus('error');
-            }
-        }, intervalMs);
-    };
+    const status = session?.status || 'none';
+    const qr = session?.qr || null;
+    const error = actionError || session?.error || statusError?.message || null;
+    const progress = session?.progress || null;
+    const autoReplyEnabled = session?.autoReplyEnabled !== false;
+    const loading = connectMutation.isPending || disconnectMutation.isPending || pauseResumeMutation.isPending;
 
     useEffect(() => {
-        syncStatus().catch(() => { });
-
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                syncStatus().catch(() => { });
-            }
-        };
-
-        const handleFocus = () => {
-            syncStatus().catch(() => { });
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleFocus);
-
-        return () => {
-            stopPolling();
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, []);
+        if (status !== 'connected') return;
+        const seller = JSON.parse(localStorage.getItem('seller') || '{}');
+        seller.whatsappConnected = true;
+        localStorage.setItem('seller', JSON.stringify(seller));
+    }, [status]);
 
     const handleConnect = async () => {
-        setLoading(true);
-        setError(null);
+        setActionError(null);
         try {
-            const data = await api.connectWhatsApp();
-            applySessionState(data);
-            await syncStatus();
+            await connectMutation.mutateAsync();
         } catch (err) {
-            alert(err.message);
-            setLoading(false);
+            setActionError(err.message);
         }
     };
 
     const handleDisconnect = async () => {
-        stopPolling();
+        setActionError(null);
         try {
-            await api.disconnectWhatsApp();
-            setStatus('none');
-            setQr(null);
-            setError(null);
-            setProgress(null);
-            setAutoReplyEnabled(true);
+            await disconnectMutation.mutateAsync();
         } catch (err) {
-            alert(err.message);
+            setActionError(err.message);
         }
     };
 
     const handlePauseResume = async () => {
-        setLoading(true);
+        setActionError(null);
         try {
-            const data = autoReplyEnabled
-                ? await api.pauseWhatsAppBot()
-                : await api.resumeWhatsAppBot();
-            setAutoReplyEnabled(data.autoReplyEnabled);
+            await pauseResumeMutation.mutateAsync();
         } catch (err) {
-            alert(err.message);
-        } finally {
-            setLoading(false);
+            setActionError(err.message);
         }
     };
 

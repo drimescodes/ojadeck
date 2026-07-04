@@ -1,37 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { queryKeys } from '../query';
 
 export default function Dashboard() {
-    const [stats, setStats] = useState(null);
-    const [profile, setProfile] = useState(null);
+    const { data: stats } = useQuery({
+        queryKey: queryKeys.orderStats,
+        queryFn: api.getOrderStats,
+    });
+    const { data: profile } = useQuery({
+        queryKey: queryKeys.whatsappStatus,
+        queryFn: api.getWhatsAppStatus,
+        refetchInterval: 15000,
+    });
     const seller = JSON.parse(localStorage.getItem('seller') || '{}');
-
-    useEffect(() => {
-        const loadOverview = () => {
-            api.getOrderStats().then(setStats).catch(() => { });
-            api.getWhatsAppStatus().then(setProfile).catch(() => { });
-        };
-
-        loadOverview();
-
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                loadOverview();
-            }
-        };
-
-        const handleFocus = () => {
-            loadOverview();
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleFocus);
-
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, []);
 
     const statCards = [
         {

@@ -1,16 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { queryKeys } from '../query';
 
 export default function Orders() {
-    const [orders, setOrders] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        api.getOrders()
-            .then(setOrders)
-            .catch(console.error)
-            .finally(() => setLoading(false));
-    }, []);
+    const { data: orders = [], isLoading } = useQuery({
+        queryKey: queryKeys.orders,
+        queryFn: api.getOrders,
+    });
+    const loading = isLoading && orders.length === 0;
 
     const formatDate = (timestamp) => {
         if (!timestamp) return '—';

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
+import { queryKeys } from '../query';
 
 export default function Settings() {
+    const queryClient = useQueryClient();
     const [form, setForm] = useState({
         businessName: '',
         personalPhone: '',
@@ -9,30 +12,38 @@ export default function Settings() {
         aiBusinessContext: '',
         aiInstructions: '',
     });
-    const [loading, setLoading] = useState(false);
     const [saved, setSaved] = useState(false);
+    const { data: profile } = useQuery({
+        queryKey: queryKeys.profile,
+        queryFn: api.getProfile,
+    });
+    const updateProfileMutation = useMutation({
+        mutationFn: api.updateProfile,
+    });
 
     useEffect(() => {
-        api.getProfile().then((data) => {
-            setForm({
-                businessName: data.businessName || '',
-                personalPhone: data.personalPhone || '',
-                aiTone: data.aiTone || '',
-                aiBusinessContext: data.aiBusinessContext || '',
-                aiInstructions: data.aiInstructions || '',
-            });
-        }).catch(() => { });
-    }, []);
+        if (!profile) return;
+        setForm({
+            businessName: profile.businessName || '',
+            personalPhone: profile.personalPhone || '',
+            aiTone: profile.aiTone || '',
+            aiBusinessContext: profile.aiBusinessContext || '',
+            aiInstructions: profile.aiInstructions || '',
+        });
+    }, [profile]);
 
     const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
     const handleSave = async (e) => {
         e.preventDefault();
-        setLoading(true);
         setSaved(false);
 
         try {
-            await api.updateProfile(form);
+            await updateProfileMutation.mutateAsync(form);
+            queryClient.setQueryData(queryKeys.profile, (current) => ({
+                ...current,
+                ...form,
+            }));
             const seller = JSON.parse(localStorage.getItem('seller') || '{}');
             seller.businessName = form.businessName;
             seller.personalPhone = form.personalPhone;
@@ -41,10 +52,10 @@ export default function Settings() {
             setTimeout(() => setSaved(false), 3000);
         } catch (err) {
             alert(err.message);
-        } finally {
-            setLoading(false);
         }
     };
+
+    const loading = updateProfileMutation.isPending;
 
     return (
         <div className="space-y-8">

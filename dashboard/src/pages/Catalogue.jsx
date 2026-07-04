@@ -1,31 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { queryKeys } from '../query';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export default function Catalogue() {
-    const [products, setProducts] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState({ name: '', description: '', price: '', inStock: true });
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState('');
-    const [loading, setLoading] = useState(true);
+    const queryClient = useQueryClient();
+    const { data: products = [], isLoading } = useQuery({
+        queryKey: queryKeys.products,
+        queryFn: api.getProducts,
+    });
+    const loading = isLoading && products.length === 0;
+    const saveProductMutation = useMutation({
+        mutationFn: async ({ productId, payload, file }) => {
+            let savedProductId = productId;
+            if (savedProductId) {
+                await api.updateProduct(savedProductId, payload);
+            } else {
+                const created = await api.addProduct(payload);
+                savedProductId = created.id;
+            }
+
+            if (file && savedProductId) {
+                await api.uploadProductImage(savedProductId, file);
+            }
+        },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.products }),
+    });
+    const deleteProductMutation = useMutation({
+        mutationFn: api.deleteProduct,
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.products }),
+    });
+    const productActionBusy = saveProductMutation.isPending || deleteProductMutation.isPending;
 
     useBodyScrollLock(showModal);
-
-    const loadProducts = async () => {
-        try {
-            const data = await api.getProducts();
-            setProducts(data);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => { loadProducts(); }, []);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -69,21 +83,10 @@ export default function Catalogue() {
         };
 
         try {
-            let productId = editing?.id;
-            if (editing) {
-                await api.updateProduct(editing.id, payload);
-            } else {
-                const created = await api.addProduct(payload);
-                productId = created.id;
-            }
-
-            if (imageFile && productId) {
-                await api.uploadProductImage(productId, imageFile);
-            }
+            await saveProductMutation.mutateAsync({ productId: editing?.id, payload, file: imageFile });
             setShowModal(false);
             setImageFile(null);
             setImagePreview('');
-            loadProducts();
         } catch (err) {
             alert(err.message);
         }
@@ -92,8 +95,7 @@ export default function Catalogue() {
     const handleDelete = async (id) => {
         if (!confirm('Delete this product?')) return;
         try {
-            await api.deleteProduct(id);
-            loadProducts();
+            await deleteProductMutation.mutateAsync(id);
         } catch (err) {
             alert(err.message);
         }
@@ -177,8 +179,9 @@ export default function Catalogue() {
                                     Edit
                                 </button>
                                 <button
-                                    className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+                                    className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                                     onClick={() => handleDelete(p.id)}
+                                    disabled={productActionBusy}
                                 >
                                     Delete
                                 </button>
@@ -271,11 +274,11 @@ export default function Catalogue() {
                             </div>
                         </div>
                         <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-[#eee5d4] bg-[#fffdf8] px-6 py-4 sm:flex-row sm:justify-end md:px-7">
-                            <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136] transition hover:border-[#b8ac95] hover:bg-[#f1ebdf]" onClick={() => setShowModal(false)}>
+                            <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136] transition hover:border-[#b8ac95] hover:bg-[#f1ebdf] disabled:cursor-not-allowed disabled:opacity-60" onClick={() => setShowModal(false)} disabled={productActionBusy}>
                                 Cancel
                             </button>
-                            <button className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(21,61,50,0.18)] transition hover:bg-[#1b4a3d]" onClick={handleSave}>
-                                {editing ? 'Save Changes' : 'Add Product'}
+                            <button className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(21,61,50,0.18)] transition hover:bg-[#1b4a3d] disabled:cursor-not-allowed disabled:opacity-60" onClick={handleSave} disabled={productActionBusy}>
+                                {saveProductMutation.isPending ? 'Saving...' : editing ? 'Save Changes' : 'Add Product'}
                             </button>
                         </div>
                     </div>

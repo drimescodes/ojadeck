@@ -1,24 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { queryKeys } from '../query';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export default function Wallet() {
-    const [summary, setSummary] = useState(null);
-    const [ledger, setLedger] = useState([]);
-    const [payouts, setPayouts] = useState([]);
-    const [banks, setBanks] = useState([]);
     const [bankForm, setBankForm] = useState({ bankCode: '', accountNumber: '', accountName: '', bankName: '' });
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [pendingPayout, setPendingPayout] = useState(null);
-    const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
-    const [lastUpdated, setLastUpdated] = useState(null);
     const confirmingPayoutRef = useRef(false);
     const statusPollRef = useRef(null);
-    const walletRefreshIntervalRef = useRef(null);
-    const walletRefreshInFlightRef = useRef(false);
+    const queryClient = useQueryClient();
+    const {
+        data: summary,
+        isLoading: summaryLoading,
+        dataUpdatedAt: summaryUpdatedAt,
+    } = useQuery({
+        queryKey: queryKeys.walletSummary,
+        queryFn: api.getWalletSummary,
+        refetchInterval: 5000,
+    });
+    const {
+        data: ledger = [],
+        isLoading: ledgerLoading,
+        dataUpdatedAt: ledgerUpdatedAt,
+    } = useQuery({
+        queryKey: queryKeys.walletLedger,
+        queryFn: api.getWalletLedger,
+        refetchInterval: 5000,
+    });
+    const {
+        data: payouts = [],
+        isLoading: payoutsLoading,
+        dataUpdatedAt: payoutsUpdatedAt,
+    } = useQuery({
+        queryKey: queryKeys.payouts,
+        queryFn: api.getPayouts,
+        refetchInterval: 5000,
+    });
+    const { data: banks = [] } = useQuery({
+        queryKey: queryKeys.banks,
+        queryFn: api.getBanks,
+        staleTime: 24 * 60 * 60_000,
+        gcTime: 24 * 60 * 60_000,
+    });
+    const loading = (summaryLoading || ledgerLoading || payoutsLoading) && !summary;
+    const lastUpdatedAt = Math.max(summaryUpdatedAt, ledgerUpdatedAt, payoutsUpdatedAt);
+    const lastUpdated = lastUpdatedAt ? new Date(lastUpdatedAt) : null;
 
     useBodyScrollLock(Boolean(pendingPayout));
 
@@ -27,57 +58,28 @@ export default function Wallet() {
         [banks, bankForm.bankCode]
     );
 
-    const loadWallet = async () => {
-        const [summaryData, ledgerData, payoutData] = await Promise.all([
-            api.getWalletSummary(),
-            api.getWalletLedger(),
-            api.getPayouts(),
+    const refetchWallet = async () => {
+        await Promise.all([
+            queryClient.refetchQueries({ queryKey: queryKeys.walletSummary }),
+            queryClient.refetchQueries({ queryKey: queryKeys.walletLedger }),
+            queryClient.refetchQueries({ queryKey: queryKeys.payouts }),
         ]);
-        setSummary(summaryData);
-        setLedger(ledgerData);
-        setPayouts(payoutData);
-        setLastUpdated(new Date());
-        if (summaryData.payoutAccount) {
-            setBankForm({
-                bankCode: summaryData.payoutAccount.bankCode,
-                bankName: summaryData.payoutAccount.bankName,
-                accountNumber: summaryData.payoutAccount.accountNumber,
-                accountName: summaryData.payoutAccount.accountName,
-            });
-        }
-        return { summaryData, ledgerData, payoutData };
+        return queryClient.getQueryData(queryKeys.payouts) || [];
     };
 
     useEffect(() => {
-        const refreshWalletSilently = async () => {
-            if (document.visibilityState !== 'visible' || walletRefreshInFlightRef.current) return;
+        if (!summary?.payoutAccount) return;
+        setBankForm({
+            bankCode: summary.payoutAccount.bankCode,
+            bankName: summary.payoutAccount.bankName,
+            accountNumber: summary.payoutAccount.accountNumber,
+            accountName: summary.payoutAccount.accountName,
+        });
+    }, [summary?.payoutAccount]);
 
-            walletRefreshInFlightRef.current = true;
-            try {
-                await loadWallet();
-            } catch {
-                // Background refresh should not interrupt active wallet/payout work.
-            } finally {
-                walletRefreshInFlightRef.current = false;
-            }
-        };
-
-        Promise.all([
-            loadWallet(),
-            api.getBanks().then(setBanks).catch(() => setBanks([])),
-        ])
-            .catch((err) => setMessage(err.message))
-            .finally(() => setLoading(false));
-
-        walletRefreshIntervalRef.current = setInterval(refreshWalletSilently, 5000);
-        window.addEventListener('focus', refreshWalletSilently);
-        document.addEventListener('visibilitychange', refreshWalletSilently);
-
+    useEffect(() => {
         return () => {
             if (statusPollRef.current) clearTimeout(statusPollRef.current);
-            if (walletRefreshIntervalRef.current) clearInterval(walletRefreshIntervalRef.current);
-            window.removeEventListener('focus', refreshWalletSilently);
-            document.removeEventListener('visibilitychange', refreshWalletSilently);
         };
     }, []);
 
@@ -86,7 +88,7 @@ export default function Wallet() {
             await new Promise((resolve) => {
                 statusPollRef.current = setTimeout(resolve, 1500);
             });
-            const { payoutData } = await loadWallet();
+            const payoutData = await refetchWallet();
             const current = payoutData.find((payout) => payout.id === payoutId);
             if (current && current.status !== 'processing') return current;
         }
@@ -134,7 +136,7 @@ export default function Wallet() {
         setMessage('');
         try {
             await api.savePayoutAccount(bankForm);
-            await loadWallet();
+            await refetchWallet();
             setMessage('Payout account saved.');
         } catch (err) {
             setMessage(err.message);
@@ -149,7 +151,7 @@ export default function Wallet() {
         try {
             const payout = await api.createPayout({ amount: Number(withdrawAmount) });
             setPendingPayout(payout);
-            await loadWallet();
+            await refetchWallet();
         } catch (err) {
             setMessage(err.message);
         } finally {
@@ -167,7 +169,7 @@ export default function Wallet() {
         try {
             await api.confirmPayout(payout.id);
             setWithdrawAmount('');
-            await loadWallet();
+            await refetchWallet();
             const settled = await waitForPayoutSettlement(payout.id);
             if (settled?.status === 'success') {
                 setMessage('Payout completed.');
@@ -178,7 +180,7 @@ export default function Wallet() {
             }
         } catch (err) {
             setMessage(err.message);
-            await loadWallet();
+            await refetchWallet();
         } finally {
             confirmingPayoutRef.current = false;
             setBusy(false);
@@ -190,9 +192,9 @@ export default function Wallet() {
         { label: 'Lifetime Credits', value: summary?.lifetimeCreditsDisplay || '₦0' },
         { label: 'Max Withdrawal', value: summary?.maxWithdrawalAmountDisplay || '₦0' },
     ];
-    const transferNotifications = useMemo(
-        () => payouts.slice(0, 4).map(getTransferNotification),
-        [payouts]
+    const paymentNotifications = useMemo(
+        () => ledger.filter((entry) => entry.type === 'order_paid').map(getPaymentNotification),
+        [ledger]
     );
 
     if (loading) {
@@ -241,10 +243,10 @@ export default function Wallet() {
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
-                            Transfer Notifications
+                            Payment Notifications
                         </div>
                         <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">
-                            Nomba payout activity
+                            Incoming Nomba payments
                         </h2>
                     </div>
                     <div className="text-xs font-semibold text-[#7b6b48]">
@@ -252,12 +254,12 @@ export default function Wallet() {
                     </div>
                 </div>
 
-                <div className="mt-5 grid gap-3">
-                    {transferNotifications.length === 0 ? (
+                <div className="mt-5 max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                    {paymentNotifications.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-[#d9d1bf] bg-[#fbf8f2] px-4 py-5 text-sm leading-7 text-[#627168]">
-                            No transfer events yet. Confirm a payout and OjaDeck will track submission, processing, success, or failure here.
+                            No payment notifications yet. Paid orders will appear here after Nomba confirms checkout through the webhook.
                         </div>
-                    ) : transferNotifications.map((item) => (
+                    ) : paymentNotifications.map((item) => (
                         <div key={item.id} className={`rounded-2xl border px-4 py-4 ${item.containerClass}`}>
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="flex min-w-0 gap-3">
@@ -435,54 +437,21 @@ function formatEventTime(value) {
     });
 }
 
-function getTransferNotification(payout) {
+function getPaymentNotification(entry) {
     const common = {
-        id: payout.id,
-        amount: payout.amountDisplay,
-        time: formatEventTime(payout.updatedAt || payout.confirmedAt || payout.createdAt),
-        meta: `${payout.bankName} - ${payout.accountNumber}`,
+        id: entry.id,
+        amount: entry.amountDisplay,
+        time: formatEventTime(entry.createdAt),
+        meta: entry.metadata?.transactionRef || entry.reference,
     };
-
-    if (payout.status === 'success') {
-        return {
-            ...common,
-            icon: '✓',
-            title: 'Payout completed',
-            description: `${payout.accountName} received the transfer through Nomba.`,
-            containerClass: 'border-emerald-200 bg-emerald-50/70',
-            iconClass: 'bg-[#1f9d63] text-white',
-        };
-    }
-
-    if (payout.status === 'failed') {
-        return {
-            ...common,
-            icon: '!',
-            title: 'Payout failed',
-            description: payout.errorMessage || 'Nomba could not complete this transfer. Reserved funds were returned to the wallet.',
-            containerClass: 'border-red-200 bg-red-50/70',
-            iconClass: 'bg-red-600 text-white',
-        };
-    }
-
-    if (payout.status === 'processing') {
-        return {
-            ...common,
-            icon: '↗',
-            title: 'Transfer submitted',
-            description: `${payout.accountName} payout is with Nomba${payout.nombaStatus ? ` (${payout.nombaStatus})` : ''}.`,
-            containerClass: 'border-amber-200 bg-amber-50/70',
-            iconClass: 'bg-[#b88427] text-white',
-        };
-    }
 
     return {
         ...common,
-        icon: '…',
-        title: 'Awaiting confirmation',
-        description: `${payout.accountName} payout has been reviewed locally but has not been sent to Nomba yet.`,
-        containerClass: 'border-[#e7dfcf] bg-[#fbf8f2]',
-        iconClass: 'bg-[#f0e7d7] text-[#7b6b48]',
+        icon: '✓',
+        title: 'Checkout payment received',
+        description: 'A signed Nomba webhook confirmed this order and credited the merchant wallet.',
+        containerClass: 'border-emerald-200 bg-emerald-50/70',
+        iconClass: 'bg-[#1f9d63] text-white',
     };
 }
 
