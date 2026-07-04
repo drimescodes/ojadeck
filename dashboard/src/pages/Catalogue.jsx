@@ -124,9 +124,7 @@ export default function Catalogue() {
             </div>
 
             {loading ? (
-                <div className="flex justify-center py-16">
-                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#d9d1bf] border-t-[#153d32]" />
-                </div>
+                <CatalogueSkeleton />
             ) : products.length === 0 ? (
                 <div className="rounded-[28px] border border-dashed border-[#d8cfbc] bg-[#fbf8f2] px-6 py-16 text-center">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">Inventory Empty</div>
@@ -284,6 +282,34 @@ export default function Catalogue() {
                 </div>,
                 document.body
             )}
+        </div>
+    );
+}
+
+function CatalogueSkeleton() {
+    return (
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {[0, 1, 2, 3, 4, 5].map((item) => (
+                <div key={item} className="rounded-[26px] border border-[#e7dfcf] bg-white p-5 shadow-[0_12px_30px_rgba(104,85,45,0.05)]">
+                    <div className="skeleton aspect-[4/3] rounded-2xl" />
+                    <div className="mt-5 flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                            <div className="skeleton h-5 w-40 rounded-full" />
+                            <div className="skeleton mt-3 h-8 w-28 rounded-full" />
+                        </div>
+                        <div className="skeleton h-7 w-20 rounded-full" />
+                    </div>
+                    <div className="mt-5 space-y-2">
+                        <div className="skeleton h-3 w-full rounded-full" />
+                        <div className="skeleton h-3 w-4/5 rounded-full" />
+                        <div className="skeleton h-3 w-2/3 rounded-full" />
+                    </div>
+                    <div className="mt-6 flex gap-3">
+                        <div className="skeleton h-10 w-20 rounded-2xl" />
+                        <div className="skeleton h-10 w-20 rounded-2xl" />
+                    </div>
+                </div>
+            ))}
         </div>
     );
 }

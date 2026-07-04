@@ -46,3 +46,46 @@ button {
 #root {
   min-height: 100vh;
 }
+
+.route-surface {
+  animation: route-surface-enter 180ms ease-out both;
+}
+
+@keyframes route-surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #f4efe6;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+  animation: skeleton-shimmer 1.15s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-surface,
+  .skeleton::after {
+    animation: none;
+  }
+}

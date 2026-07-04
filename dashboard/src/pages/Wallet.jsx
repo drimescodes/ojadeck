@@ -197,9 +197,7 @@ export default function Wallet() {
 
     if (loading) {
         return (
-            <div className="flex justify-center py-16">
-                <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#d9d1bf] border-t-[#153d32]" />
-            </div>
+            <WalletSkeleton />
         );
     }
 
@@ -364,6 +362,61 @@ export default function Wallet() {
                 />,
                 document.body
             )}
+        </div>
+    );
+}
+
+function WalletSkeleton() {
+    return (
+        <div className="space-y-8">
+            <div>
+                <div className="skeleton h-3 w-24 rounded-full" />
+                <div className="skeleton mt-4 h-10 w-80 max-w-full rounded-2xl" />
+                <div className="skeleton mt-4 h-4 w-full max-w-xl rounded-full" />
+                <div className="skeleton mt-2 h-4 w-80 max-w-full rounded-full" />
+            </div>
+
+            <section className="grid gap-4 md:grid-cols-3">
+                {[0, 1, 2].map((item) => (
+                    <div key={item} className="rounded-[24px] border border-[#e7dfcf] bg-white px-5 py-5 shadow-[0_12px_30px_rgba(104,85,45,0.05)]">
+                        <div className="skeleton h-3 w-32 rounded-full" />
+                        <div className="skeleton mt-4 h-10 w-36 rounded-2xl" />
+                    </div>
+                ))}
+            </section>
+
+            <section className="rounded-[26px] border border-[#e7dfcf] bg-white p-5 shadow-[0_12px_30px_rgba(104,85,45,0.05)] md:p-6">
+                <div className="skeleton h-3 w-44 rounded-full" />
+                <div className="skeleton mt-4 h-8 w-64 rounded-2xl" />
+                <div className="mt-5 grid gap-3">
+                    {[0, 1, 2].map((item) => (
+                        <div key={item} className="rounded-2xl border border-[#eee5d4] px-4 py-4">
+                            <div className="flex gap-3">
+                                <div className="skeleton h-10 w-10 shrink-0 rounded-full" />
+                                <div className="min-w-0 flex-1">
+                                    <div className="skeleton h-4 w-44 rounded-full" />
+                                    <div className="skeleton mt-3 h-3 w-full rounded-full" />
+                                    <div className="skeleton mt-2 h-3 w-2/3 rounded-full" />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <section className="grid gap-5 xl:grid-cols-2">
+                {[0, 1].map((item) => (
+                    <div key={item} className="rounded-[26px] border border-[#e7dfcf] bg-white p-6 shadow-[0_12px_30px_rgba(104,85,45,0.05)]">
+                        <div className="skeleton h-3 w-32 rounded-full" />
+                        <div className="skeleton mt-4 h-8 w-44 rounded-2xl" />
+                        <div className="mt-5 space-y-4">
+                            <div className="skeleton h-12 rounded-2xl" />
+                            <div className="skeleton h-12 rounded-2xl" />
+                            <div className="skeleton h-12 rounded-2xl" />
+                        </div>
+                    </div>
+                ))}
+            </section>
         </div>
     );
 }

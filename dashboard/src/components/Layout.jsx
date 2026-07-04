@@ -1,8 +1,9 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import OjaDeckLogo from './OjaDeckLogo';
 
 export default function Layout({ children }) {
     const navigate = useNavigate();
+    const location = useLocation();
     const seller = JSON.parse(localStorage.getItem('seller') || '{}');
 
     const handleLogout = () => {
@@ -103,7 +104,9 @@ export default function Layout({ children }) {
 
                 <main className="min-w-0 flex-1">
                     <div className="rounded-[30px] border border-[#e7e0d0] bg-[#fffdf8]/96 p-5 shadow-[0_24px_80px_rgba(100,78,38,0.08)] backdrop-blur md:p-7 lg:min-h-[calc(100vh-3rem)] lg:p-8">
-                        {children}
+                        <div key={location.pathname} className="route-surface">
+                            {children}
+                        </div>
                     </div>
                 </main>
             </div>
