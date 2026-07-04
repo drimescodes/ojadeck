@@ -190,6 +190,10 @@ export default function Wallet() {
         { label: 'Lifetime Credits', value: summary?.lifetimeCreditsDisplay || '₦0' },
         { label: 'Max Withdrawal', value: summary?.maxWithdrawalAmountDisplay || '₦0' },
     ];
+    const transferNotifications = useMemo(
+        () => payouts.slice(0, 4).map(getTransferNotification),
+        [payouts]
+    );
 
     if (loading) {
         return (
@@ -233,6 +237,61 @@ export default function Wallet() {
                         </div>
                     </div>
                 ))}
+            </section>
+
+            <section className="rounded-[26px] border border-[#e7dfcf] bg-white p-5 shadow-[0_12px_30px_rgba(104,85,45,0.05)] md:p-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
+                            Transfer Notifications
+                        </div>
+                        <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">
+                            Nomba payout activity
+                        </h2>
+                    </div>
+                    <div className="text-xs font-semibold text-[#7b6b48]">
+                        Updates auto-refresh with wallet data
+                    </div>
+                </div>
+
+                <div className="mt-5 grid gap-3">
+                    {transferNotifications.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-[#d9d1bf] bg-[#fbf8f2] px-4 py-5 text-sm leading-7 text-[#627168]">
+                            No transfer events yet. Confirm a payout and OjaDeck will track submission, processing, success, or failure here.
+                        </div>
+                    ) : transferNotifications.map((item) => (
+                        <div key={item.id} className={`rounded-2xl border px-4 py-4 ${item.containerClass}`}>
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex min-w-0 gap-3">
+                                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-extrabold ${item.iconClass}`}>
+                                        {item.icon}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="text-sm font-bold text-[#18231d]">
+                                            {item.title}
+                                        </div>
+                                        <p className="mt-1 text-sm leading-6 text-[#627168]">
+                                            {item.description}
+                                        </p>
+                                        {item.meta && (
+                                            <div className="mt-2 text-xs font-semibold text-[#7b6b48]">
+                                                {item.meta}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="shrink-0 text-left sm:text-right">
+                                    <div className="text-sm font-extrabold text-[#153d32]">
+                                        {item.amount}
+                                    </div>
+                                    <div className="mt-1 text-xs font-semibold text-[#7b6b48]">
+                                        {item.time}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </section>
 
             <section className="grid gap-5 xl:grid-cols-2">
@@ -307,6 +366,71 @@ export default function Wallet() {
             )}
         </div>
     );
+}
+
+function formatEventTime(value) {
+    if (!value) return 'Just now';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Just now';
+
+    return date.toLocaleString([], {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function getTransferNotification(payout) {
+    const common = {
+        id: payout.id,
+        amount: payout.amountDisplay,
+        time: formatEventTime(payout.updatedAt || payout.confirmedAt || payout.createdAt),
+        meta: `${payout.bankName} - ${payout.accountNumber}`,
+    };
+
+    if (payout.status === 'success') {
+        return {
+            ...common,
+            icon: '✓',
+            title: 'Payout completed',
+            description: `${payout.accountName} received the transfer through Nomba.`,
+            containerClass: 'border-emerald-200 bg-emerald-50/70',
+            iconClass: 'bg-[#1f9d63] text-white',
+        };
+    }
+
+    if (payout.status === 'failed') {
+        return {
+            ...common,
+            icon: '!',
+            title: 'Payout failed',
+            description: payout.errorMessage || 'Nomba could not complete this transfer. Reserved funds were returned to the wallet.',
+            containerClass: 'border-red-200 bg-red-50/70',
+            iconClass: 'bg-red-600 text-white',
+        };
+    }
+
+    if (payout.status === 'processing') {
+        return {
+            ...common,
+            icon: '↗',
+            title: 'Transfer submitted',
+            description: `${payout.accountName} payout is with Nomba${payout.nombaStatus ? ` (${payout.nombaStatus})` : ''}.`,
+            containerClass: 'border-amber-200 bg-amber-50/70',
+            iconClass: 'bg-[#b88427] text-white',
+        };
+    }
+
+    return {
+        ...common,
+        icon: '…',
+        title: 'Awaiting confirmation',
+        description: `${payout.accountName} payout has been reviewed locally but has not been sent to Nomba yet.`,
+        containerClass: 'border-[#e7dfcf] bg-[#fbf8f2]',
+        iconClass: 'bg-[#f0e7d7] text-[#7b6b48]',
+    };
 }
 
 function BankSearchSelect({ banks, value, bankName, onSelect }) {

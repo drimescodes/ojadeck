@@ -158,7 +158,7 @@ uploads/
 
 ## Current Known Tradeoffs
 
-- SQLite is sufficient for the hackathon MVP and single-server deployment; production scale would move to a managed database.
-- Product images are local to the VPS; production scale would move uploads to object storage.
-- WhatsApp automation depends on `whatsapp-web.js`; production usage should review WhatsApp platform policy and operational limits.
+- SQLite is a pragmatic choice for the hackathon MVP and single-server deployment. A production rollout would move to a managed relational database.
+- Product images are stored locally on the VPS for the MVP. A production rollout would move uploads to object storage.
+- WhatsApp automation currently uses `whatsapp-web.js` for rapid MVP delivery. A production rollout would review WhatsApp platform policy and migrate to an approved messaging integration where required.
 - Signed Nomba webhook confirmation is accepted when transaction lookup fails after amount/reference/currency validation, because webhook delivery is the authoritative real-time payment signal in the current hackathon environment.

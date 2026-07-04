@@ -382,8 +382,20 @@ export class SessionManager extends EventEmitter {
         client.on("change_state", (state: string) => {
             if (!this.isCurrentClient(sellerId, client)) return;
 
+            const normalizedState = String(state).toUpperCase();
             const progress = `WhatsApp state changed: ${state}`;
-            this.updateSessionState(sellerId, "initializing", { progress });
+
+            if (normalizedState === "CONNECTED") {
+                this.updateSessionState(sellerId, "connected", {
+                    qrCode: null,
+                    error: null,
+                    progress: "WhatsApp connected successfully.",
+                });
+            } else if (this.sessions.get(sellerId)?.status === "connected") {
+                this.updateSessionState(sellerId, "connected", { progress });
+            } else {
+                this.updateSessionState(sellerId, "initializing", { progress });
+            }
             logger.info({ sellerId, state }, "WhatsApp state changed");
         });
     }
