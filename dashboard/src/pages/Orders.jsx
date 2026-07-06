@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { queryKeys } from '../query';
+import { Badge, QueryError } from '../components/ui';
 
 export default function Orders() {
-    const { data: orders = [], isLoading } = useQuery({
+    const { data: orders = [], isLoading, isError } = useQuery({
         queryKey: queryKeys.orders,
         queryFn: api.getOrders,
     });
@@ -31,7 +32,9 @@ export default function Orders() {
                 </p>
             </div>
 
-            {loading ? (
+            {isError ? (
+                <QueryError message="Could not load orders. Refresh and try again." />
+            ) : loading ? (
                 <OrdersSkeleton />
             ) : orders.length === 0 ? (
                 <div className="rounded-[28px] border border-dashed border-[#d8cfbc] bg-[#fbf8f2] px-6 py-16 text-center">
@@ -64,7 +67,7 @@ export default function Orders() {
                                         </td>
                                         <td className="px-5 py-4">
                                             <div className="space-y-1">
-                                                {order.items.map((item, i) => (
+                                                {(order.items || []).map((item, i) => (
                                                     <div key={i} className="text-sm leading-6 text-[#31453b]">
                                                         {item.name} ×{item.qty}
                                                     </div>
@@ -98,14 +101,14 @@ function OrdersSkeleton() {
     return (
         <div className="space-y-5">
             <div className="overflow-hidden rounded-[28px] border border-[#e7dfcf] bg-white shadow-[0_12px_30px_rgba(104,85,45,0.05)]">
-                <div className="grid grid-cols-5 gap-4 bg-[#f7f1e4] px-5 py-4">
-                    {[0, 1, 2, 3, 4].map((item) => (
+                <div className="grid grid-cols-6 gap-4 bg-[#f7f1e4] px-5 py-4">
+                    {[0, 1, 2, 3, 4, 5].map((item) => (
                         <div key={item} className="skeleton h-3 rounded-full" />
                     ))}
                 </div>
                 <div className="divide-y divide-[#f1e9d8]">
                     {[0, 1, 2, 3].map((row) => (
-                        <div key={row} className="grid grid-cols-5 gap-4 px-5 py-5">
+                        <div key={row} className="grid grid-cols-6 gap-4 px-5 py-5">
                             <div className="space-y-2">
                                 <div className="skeleton h-4 w-28 rounded-full" />
                                 <div className="skeleton h-3 w-20 rounded-full" />
@@ -120,6 +123,7 @@ function OrdersSkeleton() {
                                 <div className="skeleton h-3 w-44 rounded-full" />
                                 <div className="skeleton h-3 w-36 rounded-full" />
                             </div>
+                            <div className="skeleton h-4 w-24 rounded-full" />
                         </div>
                     ))}
                 </div>
@@ -129,22 +133,8 @@ function OrdersSkeleton() {
 }
 
 function StatusPill({ status }) {
-    return (
-        <span
-            className={[
-                'rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]',
-                status === 'paid'
-                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                    : status === 'pending'
-                        ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                        : status === 'cancelled'
-                            ? 'bg-slate-50 text-slate-600 ring-1 ring-slate-200'
-                            : 'bg-red-50 text-red-700 ring-1 ring-red-200',
-            ].join(' ')}
-        >
-            {status}
-        </span>
-    );
+    const tone = status === 'paid' ? 'success' : status === 'pending' ? 'warn' : status === 'cancelled' ? 'muted' : 'danger';
+    return <Badge tone={tone}>{status}</Badge>;
 }
 
 function getTrackerSteps(order) {

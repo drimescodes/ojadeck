@@ -23,7 +23,7 @@ https://ojadeck.drimes.dev/api/webhooks/payments
 - Database: SQLite with startup migrations and Drizzle schema.
 - WhatsApp integration: `whatsapp-web.js` with per-seller sessions.
 - AI engine: Gemini primary model with OpenRouter fallback.
-- Payments: Nomba Checkout order creation, webhook signature verification, transaction verification fallback, internal seller ledger, and Nomba Transfers for payouts.
+- Payments: Nomba Checkout order creation, webhook signature verification, optional strict transaction verification, internal seller ledger, and Nomba Transfers for payouts.
 - Uploads: local product images stored under `uploads/products/...` and served from `/uploads/...`.
 
 ## Data Flow
@@ -37,18 +37,20 @@ https://ojadeck.drimes.dev/api/webhooks/payments
 7. Backend creates a pending order and requests a Nomba Checkout link.
 8. Customer pays through Nomba.
 9. Nomba sends a signed `payment_success` webhook to OjaDeck.
-10. OjaDeck validates signature, reference, amount, and currency, attempts transaction verification, marks the order paid, credits the seller ledger, sends a WhatsApp payment confirmation to the customer, and notifies the merchant.
+10. OjaDeck validates signature, reference, amount, and currency, verifies the transaction when configured, marks the order paid, credits the seller ledger, sends a WhatsApp payment confirmation to the customer, and notifies the merchant.
 11. Merchant saves a verified payout account and confirms a withdrawal from the Wallet dashboard.
 12. OjaDeck reserves the payout amount in the ledger and submits a live Nomba bank transfer from the hackathon sub-account.
 
 ## Authentication and Access Control
 
 - Dashboard authentication uses JWTs signed by the backend.
+- `JWT_SECRET` is required at startup and must be a non-placeholder random value.
 - Protected API routes require `Authorization: Bearer <token>`.
 - Seller-scoped routes read `sellerId` from the verified JWT.
 - Product, order, WhatsApp, and seller profile operations are scoped to the authenticated seller.
 - Payment webhooks are public by URL but protected by Nomba HMAC signature verification.
 - The customer payment return page at `/payment/complete` is public and does not mutate payment state.
+- Registration normalizes email addresses and requires passwords to be at least 8 characters. Password reset is outside the MVP because it needs verified email delivery and expiring reset tokens.
 
 ## Nomba Integration
 
@@ -60,6 +62,7 @@ OjaDeck supports `NOMBA_MODE=test` and `NOMBA_MODE=live`.
 - Browser callback URL points to `/payment/complete`.
 - Server webhook URL is `/api/webhooks/payments`.
 - Bank transfers use `POST /v2/transfers/bank/{subAccountId}` after a merchant confirms withdrawal.
+- Live deployment can require Nomba transaction verification before wallet credit by setting `NOMBA_REQUIRE_TRANSACTION_VERIFICATION=true`.
 
 Webhook handling:
 
@@ -68,7 +71,8 @@ Webhook handling:
 - Processes only signed payment events.
 - Requires a known order reference and exact amount match before marking an order paid.
 - Attempts Nomba transaction lookup by order reference and then transaction ID.
-- If lookup is temporarily unavailable but the signed webhook has valid reference, amount, and currency, OjaDeck accepts the signed webhook confirmation and marks the order paid.
+- Explicit non-success verification results do not credit the wallet.
+- If lookup is temporarily unavailable, behavior is controlled by `NOMBA_REQUIRE_TRANSACTION_VERIFICATION`. In the live VPS deployment, this should be set to true so signed webhook confirmation must also pass transaction verification before wallet credit.
 - After marking an order paid, OjaDeck sends the customer a WhatsApp confirmation receipt, attempts to attach a generated receipt image, and sends the merchant a paid-order notification.
 
 Wallet and payout handling:
@@ -76,12 +80,15 @@ Wallet and payout handling:
 - Paid orders create one `order_paid` ledger credit for the seller.
 - Duplicate webhooks do not duplicate credits because ledger references are unique per order.
 - Payout requests are created as `pending_confirmation` before money moves.
+- Confirmed payouts check that the wallet can cover both the requested payout amount and the estimated Nomba transfer fee.
+- Payout confirmation is serialized per seller on the single VPS process so concurrent confirmations cannot overdraw the same balance.
 - Confirmed payouts create negative ledger entries for both the requested payout amount and the estimated Nomba transfer fee before calling Nomba Transfers.
 - Successful or processing transfer responses keep funds reserved.
 - Failed transfer calls create positive reversal entries and mark the payout failed.
 - `payout_success` webhooks mark processing payouts successful and adjust the fee ledger if Nomba reports a different charged amount.
 - The dashboard shows both available balance and max withdrawal amount so merchants account for transfer fees before submitting a payout.
 - Merchants can verify bank details through Nomba bank lookup before saving a payout account.
+- Bank lookup is rate-limited per seller to avoid account-name enumeration and accidental quota burn.
 
 ## AI Safety and Catalogue Guardrails
 
@@ -113,7 +120,9 @@ The AI is never trusted as the payment source of truth.
 - Uploads are accepted only for products owned by the authenticated seller.
 - Allowed image types: JPG, PNG, WEBP.
 - Maximum image size: 3 MB.
-- Image URLs are stored on product records.
+- Image content is checked with magic bytes; the API does not trust only the client-provided MIME type.
+- Product image paths are generated by the upload endpoint. Product create/update JSON cannot set arbitrary `imageUrl` values.
+- When the WhatsApp bot reads a local product image, the resolved path must stay inside the `uploads/` directory.
 - Uploaded files are runtime state under `uploads/` and are not committed to git.
 
 ## Reliability and Failure Handling
@@ -144,6 +153,7 @@ NOMBA_*_PRIVATE_KEY
 NOMBA_*_PARENT_ACCOUNT_ID
 NOMBA_*_SUB_ACCOUNT_ID
 NOMBA_WEBHOOK_SECRET
+NOMBA_REQUIRE_TRANSACTION_VERIFICATION
 NOMBA_TRANSFER_FEE_NAIRA
 ```
 
@@ -161,4 +171,5 @@ uploads/
 - SQLite is a pragmatic choice for the hackathon MVP and single-server deployment. A production rollout would move to a managed relational database.
 - Product images are stored locally on the VPS for the MVP. A production rollout would move uploads to object storage.
 - WhatsApp automation currently uses `whatsapp-web.js` for rapid MVP delivery. A production rollout would review WhatsApp platform policy and migrate to an approved messaging integration where required.
-- Signed Nomba webhook confirmation is accepted when transaction lookup fails after amount/reference/currency validation, because webhook delivery is the authoritative real-time payment signal in the current hackathon environment.
+- Payout serialization is in-process and fits the current one-server deployment. If OjaDeck runs more than one app instance later, this should move to transactional ledger reservations or a shared lock.
+- Product image uploads are local and capped at 3 MB. A larger production system should also enforce request-size limits before buffering multipart uploads.

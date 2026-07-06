@@ -1,7 +1,24 @@
 // Simple JWT utility using Bun's built-in crypto (no external dependency needed)
 // For a hackathon, this is sufficient. In production, use a proper JWT library.
 
-const SECRET = process.env.JWT_SECRET || "hackathon-ojadeck-secret-change-me";
+import { timingSafeEqual } from "node:crypto";
+
+const PLACEHOLDER_SECRETS = new Set([
+    "hackathon-ojadeck-secret-change-me",
+    "change-me-to-a-random-string",
+]);
+
+function getJwtSecret(): string {
+    const secret = process.env.JWT_SECRET?.trim();
+
+    if (!secret || PLACEHOLDER_SECRETS.has(secret) || secret.length < 32) {
+        throw new Error("JWT_SECRET must be set to a non-placeholder random value with at least 32 characters.");
+    }
+
+    return secret;
+}
+
+const SECRET = getJwtSecret();
 
 function base64UrlEncode(data: string): string {
     return Buffer.from(data).toString("base64url");
@@ -54,7 +71,11 @@ const jwt = {
             hmac.update(`${header}.${body}`);
             const expectedSig = hmac.digest("base64url") as string;
 
-            if (sig !== expectedSig) return null;
+            const sigBuffer = Buffer.from(sig);
+            const expectedSigBuffer = Buffer.from(expectedSig);
+            if (sigBuffer.length !== expectedSigBuffer.length || !timingSafeEqual(sigBuffer, expectedSigBuffer)) {
+                return null;
+            }
 
             const payload = JSON.parse(base64UrlDecode(body));
 

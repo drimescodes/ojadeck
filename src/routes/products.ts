@@ -13,6 +13,44 @@ const ALLOWED_IMAGE_TYPES = new Map([
     ["image/webp", "webp"],
 ]);
 
+async function detectImageMime(file: File): Promise<string | null> {
+    const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+
+    if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+        return "image/jpeg";
+    }
+
+    if (
+        header.length >= 8
+        && header[0] === 0x89
+        && header[1] === 0x50
+        && header[2] === 0x4e
+        && header[3] === 0x47
+        && header[4] === 0x0d
+        && header[5] === 0x0a
+        && header[6] === 0x1a
+        && header[7] === 0x0a
+    ) {
+        return "image/png";
+    }
+
+    if (
+        header.length >= 12
+        && header[0] === 0x52
+        && header[1] === 0x49
+        && header[2] === 0x46
+        && header[3] === 0x46
+        && header[8] === 0x57
+        && header[9] === 0x45
+        && header[10] === 0x42
+        && header[11] === 0x50
+    ) {
+        return "image/webp";
+    }
+
+    return null;
+}
+
 // List all products for the authenticated seller
 productsRouter.get("/", async (c) => {
     const sellerId = c.get("sellerId" as never) as string;
@@ -37,7 +75,7 @@ productsRouter.get("/", async (c) => {
 // Add a product
 productsRouter.post("/", async (c) => {
     const sellerId = c.get("sellerId" as never) as string;
-    const { name, description, price, inStock, imageUrl } = await c.req.json();
+    const { name, description, price, inStock } = await c.req.json();
 
     if (!name || price === undefined) {
         return c.json({ error: "name and price are required" }, 400);
@@ -50,11 +88,11 @@ productsRouter.post("/", async (c) => {
         name,
         description: description || null,
         price: Math.round(Number(price)),
-        imageUrl: typeof imageUrl === "string" && imageUrl.trim() ? imageUrl.trim() : null,
+        imageUrl: null,
         inStock: inStock !== false,
     });
 
-    return c.json({ id, name, description, price, imageUrl: imageUrl || null, inStock: inStock !== false }, 201);
+    return c.json({ id, name, description, price, imageUrl: null, inStock: inStock !== false }, 201);
 });
 
 // Update a product
@@ -75,7 +113,6 @@ productsRouter.put("/:id", async (c) => {
             ...(updates.name && { name: updates.name }),
             ...(updates.description !== undefined && { description: updates.description }),
             ...(updates.price !== undefined && { price: Math.round(Number(updates.price)) }),
-            ...(updates.imageUrl !== undefined && { imageUrl: updates.imageUrl || null }),
             ...(updates.inStock !== undefined && { inStock: updates.inStock }),
         })
         .where(eq(products.id, productId));
@@ -109,7 +146,12 @@ productsRouter.post("/:id/image", async (c) => {
         return c.json({ error: "image must be 3MB or smaller" }, 400);
     }
 
-    const extension = ALLOWED_IMAGE_TYPES.get(image.type);
+    const detectedType = await detectImageMime(image);
+    if (!detectedType || detectedType !== image.type) {
+        return c.json({ error: "image content must match a valid jpg, png, or webp file" }, 400);
+    }
+
+    const extension = ALLOWED_IMAGE_TYPES.get(detectedType)!;
     const relativeDir = `uploads/products/${sellerId}`;
     const relativePath = `${relativeDir}/${productId}.${extension}`;
 

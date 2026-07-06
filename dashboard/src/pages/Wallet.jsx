@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { queryKeys } from '../query';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { QueryError, inputClassName, primaryButtonClassName, secondaryButtonClassName } from '../components/ui';
 
 export default function Wallet() {
     const [bankForm, setBankForm] = useState({ bankCode: '', accountNumber: '', accountName: '', bankName: '' });
@@ -11,43 +12,49 @@ export default function Wallet() {
     const [pendingPayout, setPendingPayout] = useState(null);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
+    const [messageTone, setMessageTone] = useState('info');
     const confirmingPayoutRef = useRef(false);
     const statusPollRef = useRef(null);
     const queryClient = useQueryClient();
+    const walletRefetchInterval = pendingPayout ? false : 8000;
     const {
         data: summary,
         isLoading: summaryLoading,
+        isError: summaryError,
         dataUpdatedAt: summaryUpdatedAt,
     } = useQuery({
         queryKey: queryKeys.walletSummary,
         queryFn: api.getWalletSummary,
-        refetchInterval: 5000,
+        refetchInterval: walletRefetchInterval,
     });
     const {
         data: ledger = [],
         isLoading: ledgerLoading,
+        isError: ledgerError,
         dataUpdatedAt: ledgerUpdatedAt,
     } = useQuery({
         queryKey: queryKeys.walletLedger,
         queryFn: api.getWalletLedger,
-        refetchInterval: 5000,
+        refetchInterval: walletRefetchInterval,
     });
     const {
         data: payouts = [],
         isLoading: payoutsLoading,
+        isError: payoutsError,
         dataUpdatedAt: payoutsUpdatedAt,
     } = useQuery({
         queryKey: queryKeys.payouts,
         queryFn: api.getPayouts,
-        refetchInterval: 5000,
+        refetchInterval: walletRefetchInterval,
     });
-    const { data: banks = [] } = useQuery({
+    const { data: banks = [], isError: banksError } = useQuery({
         queryKey: queryKeys.banks,
         queryFn: api.getBanks,
         staleTime: 24 * 60 * 60_000,
         gcTime: 24 * 60 * 60_000,
     });
     const loading = (summaryLoading || ledgerLoading || payoutsLoading) && !summary;
+    const walletError = summaryError || ledgerError || payoutsError;
     const lastUpdatedAt = Math.max(summaryUpdatedAt, ledgerUpdatedAt, payoutsUpdatedAt);
     const lastUpdated = lastUpdatedAt ? new Date(lastUpdatedAt) : null;
 
@@ -112,6 +119,7 @@ export default function Wallet() {
     const handleLookup = async () => {
         setBusy(true);
         setMessage('');
+        setMessageTone('info');
         try {
             const result = await api.lookupPayoutAccount({
                 bankCode: bankForm.bankCode,
@@ -123,8 +131,10 @@ export default function Wallet() {
                 accountName: result.accountName,
                 bankName: selectedBank?.name || bankForm.bankName,
             });
+            setMessageTone('success');
             setMessage('Account name verified.');
         } catch (err) {
+            setMessageTone('error');
             setMessage(err.message);
         } finally {
             setBusy(false);
@@ -134,11 +144,14 @@ export default function Wallet() {
     const handleSaveAccount = async () => {
         setBusy(true);
         setMessage('');
+        setMessageTone('info');
         try {
             await api.savePayoutAccount(bankForm);
             await refetchWallet();
+            setMessageTone('success');
             setMessage('Payout account saved.');
         } catch (err) {
+            setMessageTone('error');
             setMessage(err.message);
         } finally {
             setBusy(false);
@@ -148,11 +161,13 @@ export default function Wallet() {
     const handleCreatePayout = async () => {
         setBusy(true);
         setMessage('');
+        setMessageTone('info');
         try {
             const payout = await api.createPayout({ amount: Number(withdrawAmount) });
             setPendingPayout(payout);
             await refetchWallet();
         } catch (err) {
+            setMessageTone('error');
             setMessage(err.message);
         } finally {
             setBusy(false);
@@ -165,6 +180,7 @@ export default function Wallet() {
         confirmingPayoutRef.current = true;
         setPendingPayout(null);
         setBusy(true);
+        setMessageTone('info');
         setMessage('Submitting payout to Nomba...');
         try {
             await api.confirmPayout(payout.id);
@@ -172,13 +188,17 @@ export default function Wallet() {
             await refetchWallet();
             const settled = await waitForPayoutSettlement(payout.id);
             if (settled?.status === 'success') {
+                setMessageTone('success');
                 setMessage('Payout completed.');
             } else if (settled?.status === 'failed') {
+                setMessageTone('error');
                 setMessage(settled.errorMessage || 'Payout failed.');
             } else {
+                setMessageTone('info');
                 setMessage('Payout submitted to Nomba. Waiting for confirmation.');
             }
         } catch (err) {
+            setMessageTone('error');
             setMessage(err.message);
             await refetchWallet();
         } finally {
@@ -221,10 +241,24 @@ export default function Wallet() {
             </div>
 
             {message && (
-                <div className="rounded-2xl border border-[#e7dfcf] bg-[#fbf8f2] px-4 py-3 text-sm font-semibold text-[#294136]">
+                <div className={[
+                    'rounded-2xl border px-4 py-3 text-sm font-semibold',
+                    messageTone === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : messageTone === 'error'
+                            ? 'border-red-200 bg-red-50 text-red-700'
+                            : 'border-[#e7dfcf] bg-[#fbf8f2] text-[#294136]',
+                ].join(' ')}>
                     {message}
                 </div>
             )}
+
+            {walletError ? (
+                <QueryError message="Could not refresh wallet data. Refresh before making another payout." />
+            ) : null}
+            {banksError ? (
+                <QueryError message="Could not load bank list. Payout setup may be unavailable until refresh." />
+            ) : null}
 
             <section className="grid gap-4 md:grid-cols-3">
                 {statCards.map((card) => (
@@ -306,17 +340,17 @@ export default function Wallet() {
                             onSelect={handleBankSelect}
                         />
                         <input
-                            className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                            className={inputClassName}
                             name="accountNumber"
                             value={bankForm.accountNumber}
                             onChange={handleBankChange}
                             placeholder="Account number"
                         />
                         <div className="grid gap-3 sm:grid-cols-2">
-                            <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-4 py-3 text-sm font-semibold text-[#294136] disabled:opacity-60" disabled={busy || !bankForm.bankCode || !bankForm.accountNumber} onClick={handleLookup}>
+                            <button className={secondaryButtonClassName} disabled={busy || !bankForm.bankCode || !bankForm.accountNumber} onClick={handleLookup}>
                                 Verify Account
                             </button>
-                            <button className="rounded-2xl bg-[#153d32] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={busy || !bankForm.accountName} onClick={handleSaveAccount}>
+                            <button className={primaryButtonClassName} disabled={busy || !bankForm.accountName} onClick={handleSaveAccount}>
                                 Save Account
                             </button>
                         </div>
@@ -332,7 +366,7 @@ export default function Wallet() {
                     <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">Send payout</h2>
                     <div className="mt-5 grid gap-4">
                         <input
-                            className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                            className={inputClassName}
                             type="number"
                             min="1"
                             step="1"
@@ -340,7 +374,7 @@ export default function Wallet() {
                             onChange={(e) => setWithdrawAmount(e.target.value)}
                             placeholder="Amount in naira"
                         />
-                        <button className="rounded-2xl bg-[#153d32] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={busy || !withdrawAmount || !summary?.payoutAccount} onClick={handleCreatePayout}>
+                        <button className={primaryButtonClassName} disabled={busy || !withdrawAmount || !summary?.payoutAccount} onClick={handleCreatePayout}>
                             Review Withdrawal
                         </button>
                         <p className="text-xs leading-6 text-[#6d776f]">
@@ -531,9 +565,17 @@ function BankSearchSelect({ banks, value, bankName, onSelect }) {
 }
 
 function PayoutConfirmModal({ payout, busy, onCancel, onConfirm }) {
+    useEffect(() => {
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape' && !busy) onCancel();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [busy, onCancel]);
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#15231d]/45 px-4 py-6 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-[28px] border border-[#e8decc] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(21,35,29,0.18)] max-h-[calc(100dvh-2rem)] overflow-y-auto">
+            <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[28px] border border-[#e8decc] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(21,35,29,0.18)]" role="dialog" aria-modal="true">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">Confirm Live Transfer</div>
                 <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">{payout.amountDisplay}</h2>
                 <p className="mt-3 text-sm leading-7 text-[#627168]">
@@ -543,10 +585,10 @@ function PayoutConfirmModal({ payout, busy, onCancel, onConfirm }) {
                     Nomba transfer fees are reserved from the wallet when the payout is submitted. If Nomba returns a different charged amount, OjaDeck adjusts the ledger after confirmation.
                 </div>
                 <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                    <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136]" onClick={onCancel} disabled={busy}>
+                    <button className={secondaryButtonClassName} onClick={onCancel} disabled={busy}>
                         Cancel
                     </button>
-                    <button className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60" onClick={onConfirm} disabled={busy}>
+                    <button className={primaryButtonClassName} onClick={onConfirm} disabled={busy}>
                         Confirm Transfer
                     </button>
                 </div>

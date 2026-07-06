@@ -10,7 +10,7 @@ async function request(path, options = {}) {
     };
 
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
 
     if (res.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
         localStorage.removeItem('token');

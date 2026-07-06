@@ -70,9 +70,10 @@ export function createWhatsAppRoutes(sessionManager: SessionManager): Hono {
         return c.json({ message: "AI auto-replies resumed", autoReplyEnabled: true });
     });
 
-    // List all active sessions (admin/debug)
+    // Current seller session snapshot.
     router.get("/sessions", async (c) => {
-        return c.json(sessionManager.listSessions());
+        const sellerId = c.get("sellerId" as never) as string;
+        return c.json(await sessionManager.getSessionSnapshotWithHealthCheck(sellerId));
     });
 
     return router;

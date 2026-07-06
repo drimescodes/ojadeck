@@ -14,7 +14,7 @@ import { getNombaAmountUnit, initiatePayment, verifyTransaction } from "./paymen
 import { creditOrderPayment } from "./wallet";
 import { generateId, phoneFromWaId, formatNaira } from "../utils/helpers";
 import logger from "../utils/logger";
-import { join } from "node:path";
+import { resolve, sep } from "node:path";
 import { existsSync } from "node:fs";
 import puppeteer from "puppeteer";
 import { MessageMedia } from "whatsapp-web.js";
@@ -31,6 +31,8 @@ type ProductMedia = { name: string; imageUrl: string };
 type OrderValidationResult =
     | { ok: true; orderData: OrderData; corrected: boolean; mediaProducts: ProductMedia[] }
     | { ok: false; message: string };
+
+const REQUIRE_NOMBA_TRANSACTION_VERIFICATION = process.env.NOMBA_REQUIRE_TRANSACTION_VERIFICATION === "true";
 
 let sessionManagerRef: SessionManager | null = null;
 
@@ -194,7 +196,15 @@ function escapeHtml(value: string): string {
 
 function getLocalUploadPath(imageUrl: string): string | null {
     if (!imageUrl.startsWith("/uploads/")) return null;
-    return join(process.cwd(), imageUrl.slice(1));
+
+    const uploadsDir = resolve(process.cwd(), "uploads");
+    const imagePath = resolve(process.cwd(), imageUrl.slice(1));
+    if (imagePath !== uploadsDir && !imagePath.startsWith(`${uploadsDir}${sep}`)) {
+        logger.warn({ imageUrl }, "Rejected product image path outside uploads directory");
+        return null;
+    }
+
+    return imagePath;
 }
 
 async function replyWithProductImage(
@@ -716,6 +726,7 @@ export async function handlePaymentSuccess(
         return;
     }
 
+    let verificationChecked = false;
     try {
         const verification = await verifyTransaction({
             transactionId: options.transactionId,
@@ -724,12 +735,19 @@ export async function handlePaymentSuccess(
         const verificationStatus = getVerificationStatus(verification);
 
         if (!verificationStatus || !isSuccessfulVerificationStatus(verificationStatus)) {
-            logger.warn({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification did not return a success status; continuing with signed webhook confirmation");
+            logger.warn({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification did not return a success status");
+            if (verificationStatus || REQUIRE_NOMBA_TRANSACTION_VERIFICATION) return;
         } else {
+            verificationChecked = true;
             logger.info({ transactionRef, transactionId: options.transactionId, verificationStatus }, "Nomba transaction verification checked");
         }
     } catch (err: any) {
-        logger.warn({ transactionRef, err: err.message }, "Nomba transaction verification failed; continuing with signed webhook confirmation");
+        logger.warn({ transactionRef, err: err.message }, "Nomba transaction verification failed");
+        if (REQUIRE_NOMBA_TRANSACTION_VERIFICATION) return;
+    }
+
+    if (!verificationChecked && !REQUIRE_NOMBA_TRANSACTION_VERIFICATION) {
+        logger.warn({ transactionRef }, "Continuing with signed webhook confirmation because mandatory transaction verification is disabled");
     }
 
     // Update order status

@@ -63,7 +63,7 @@ app.use("/api/*", honoLogger());
 // ─── Public routes (no auth) ─────────────────────────────
 app.get("/api/health", (c) => c.json({
     status: "ok",
-    sessions: sessionManager.listSessions(),
+    sessionCount: sessionManager.listSessions().length,
     uptime: process.uptime(),
 }));
 
@@ -105,21 +105,27 @@ app.get("/payment/complete", (c) => {
 
 app.post("/api/auth/register", async (c) => {
     const { email, password, businessName, personalPhone } = await c.req.json();
-    if (!email || !password || !businessName) {
+    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    if (!normalizedEmail || !password || !businessName) {
         return c.json({ error: "email, password, and businessName are required" }, 400);
     }
-    const existing = await db.query.sellers.findFirst({ where: eq(sellers.email, email) });
+
+    if (String(password).length < 8) {
+        return c.json({ error: "password must be at least 8 characters" }, 400);
+    }
+
+    const existing = await db.query.sellers.findFirst({ where: eq(sellers.email, normalizedEmail) });
     if (existing) return c.json({ error: "Email already registered" }, 409);
 
     const id = generateId();
     const hashedPassword = await bcrypt.hash(password, 10);
-    await db.insert(sellers).values({ id, email, password: hashedPassword, businessName, personalPhone: personalPhone || null });
+    await db.insert(sellers).values({ id, email: normalizedEmail, password: hashedPassword, businessName, personalPhone: personalPhone || null });
 
-    const token = jwt.sign({ sellerId: id, email });
+    const token = jwt.sign({ sellerId: id, email: normalizedEmail });
     return c.json({
         seller: {
             id,
-            email,
+            email: normalizedEmail,
             businessName,
             personalPhone,
             autoReplyEnabled: true,
@@ -133,9 +139,10 @@ app.post("/api/auth/register", async (c) => {
 
 app.post("/api/auth/login", async (c) => {
     const { email, password } = await c.req.json();
-    if (!email || !password) return c.json({ error: "email and password are required" }, 400);
+    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    if (!normalizedEmail || !password) return c.json({ error: "email and password are required" }, 400);
 
-    const seller = await db.query.sellers.findFirst({ where: eq(sellers.email, email) });
+    const seller = await db.query.sellers.findFirst({ where: eq(sellers.email, normalizedEmail) });
     if (!seller || !(await bcrypt.compare(password, seller.password))) {
         return c.json({ error: "Invalid credentials" }, 401);
     }

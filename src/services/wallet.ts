@@ -8,6 +8,31 @@ import logger from "../utils/logger";
 type LedgerType = "order_paid" | "payout_requested" | "payout_failed" | "payout_fee" | "payout_fee_adjustment" | "manual_adjustment";
 
 const DEFAULT_TRANSFER_FEE_KOBO = Math.max(0, Math.round(Number(process.env.NOMBA_TRANSFER_FEE_NAIRA || "20") * 100));
+const payoutConfirmationLocks = new Map<string, Promise<void>>();
+
+// This protects the single-process VPS deployment from concurrent confirms for one seller.
+// If OjaDeck runs multiple app instances later, replace it with transactional ledger reservations.
+async function withPayoutConfirmationLock<T>(sellerId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = payoutConfirmationLocks.get(sellerId) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+
+    const queued = previous.then(() => current, () => current);
+    payoutConfirmationLocks.set(sellerId, queued);
+
+    await previous.catch(() => undefined);
+
+    try {
+        return await fn();
+    } finally {
+        release();
+        if (payoutConfirmationLocks.get(sellerId) === queued) {
+            payoutConfirmationLocks.delete(sellerId);
+        }
+    }
+}
 
 export async function createLedgerEntry(params: {
     sellerId: string;
@@ -261,6 +286,10 @@ async function adjustPayoutFeeFromChargedAmount(payout: typeof payouts.$inferSel
 }
 
 export async function confirmPayout(sellerId: string, payoutId: string) {
+    return withPayoutConfirmationLock(sellerId, () => confirmPayoutLocked(sellerId, payoutId));
+}
+
+async function confirmPayoutLocked(sellerId: string, payoutId: string) {
     const payout = await db.query.payouts.findFirst({
         where: and(eq(payouts.id, payoutId), eq(payouts.sellerId, sellerId)),
     });
@@ -271,8 +300,9 @@ export async function confirmPayout(sellerId: string, payoutId: string) {
     }
 
     const summary = await getWalletSummary(sellerId);
-    if (summary.availableBalance < payout.amount) {
-        throw new Error("Insufficient available balance.");
+    const totalEstimatedDebit = payout.amount + DEFAULT_TRANSFER_FEE_KOBO;
+    if (summary.availableBalance < totalEstimatedDebit) {
+        throw new Error(`Insufficient available balance after estimated Nomba transfer fee (${formatFee(DEFAULT_TRANSFER_FEE_KOBO)}).`);
     }
 
     const claimed = await db

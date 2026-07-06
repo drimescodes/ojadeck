@@ -13,6 +13,9 @@ import {
 import { formatNaira } from "../utils/helpers";
 
 const walletRouter = new Hono();
+const BANK_LOOKUP_LIMIT = 8;
+const BANK_LOOKUP_WINDOW_MS = 10 * 60 * 1000;
+const bankLookupAttempts = new Map<string, number[]>();
 
 function toKobo(naira: unknown): number {
     return Math.round(Number(naira) * 100);
@@ -31,6 +34,21 @@ function formatPayout(payout: typeof payouts.$inferSelect) {
         ...payout,
         amountDisplay: formatNaira(payout.amount),
     };
+}
+
+function bankLookupAllowed(sellerId: string): boolean {
+    const now = Date.now();
+    const freshAttempts = (bankLookupAttempts.get(sellerId) || [])
+        .filter((timestamp) => now - timestamp < BANK_LOOKUP_WINDOW_MS);
+
+    if (freshAttempts.length >= BANK_LOOKUP_LIMIT) {
+        bankLookupAttempts.set(sellerId, freshAttempts);
+        return false;
+    }
+
+    freshAttempts.push(now);
+    bankLookupAttempts.set(sellerId, freshAttempts);
+    return true;
 }
 
 walletRouter.get("/summary", async (c) => {
@@ -77,10 +95,15 @@ walletRouter.get("/banks", async (c) => {
 });
 
 walletRouter.post("/payout-account/lookup", async (c) => {
+    const sellerId = c.get("sellerId" as never) as string;
     const { accountNumber, bankCode } = await c.req.json();
 
     if (!accountNumber || !bankCode) {
         return c.json({ error: "accountNumber and bankCode are required" }, 400);
+    }
+
+    if (!bankLookupAllowed(sellerId)) {
+        return c.json({ error: "Too many bank account lookups. Please try again later." }, 429);
     }
 
     const result = await lookupBankAccount({
@@ -97,6 +120,10 @@ walletRouter.post("/payout-account", async (c) => {
 
     if (!bankCode || !bankName || !accountNumber) {
         return c.json({ error: "bankCode, bankName, and accountNumber are required" }, 400);
+    }
+
+    if (!bankLookupAllowed(sellerId)) {
+        return c.json({ error: "Too many bank account lookups. Please try again later." }, 429);
     }
 
     try {

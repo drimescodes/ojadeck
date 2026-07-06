@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { queryKeys } from '../query';
+import { QueryError } from '../components/ui';
 
 export default function Dashboard() {
-    const { data: stats } = useQuery({
+    const { data: stats, isError: statsError } = useQuery({
         queryKey: queryKeys.orderStats,
         queryFn: api.getOrderStats,
     });
-    const { data: profile } = useQuery({
+    const { data: waStatus, isError: waStatusError } = useQuery({
         queryKey: queryKeys.whatsappStatus,
         queryFn: api.getWhatsAppStatus,
         refetchInterval: 15000,
@@ -60,23 +61,32 @@ export default function Dashboard() {
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7a6b4a]">
                         WhatsApp Status
                     </div>
+                    {waStatusError ? (
+                        <div className="mt-4">
+                            <QueryError message="Could not refresh WhatsApp status. The bot may still be running." />
+                        </div>
+                    ) : null}
                     <div className="mt-4 flex items-center gap-3">
-                        <div className={`h-3 w-3 rounded-full ${profile?.status === 'connected' ? 'bg-[#1f9d63]' : 'bg-[#b88427]'}`} />
+                        <div className={`h-3 w-3 rounded-full ${waStatus?.status === 'connected' ? 'bg-[#1f9d63]' : 'bg-[#b88427]'}`} />
                         <div className="text-lg font-semibold text-[#1a2a22]">
-                            {profile?.status === 'connected'
-                                ? (profile?.autoReplyEnabled === false ? 'Connected, auto-replies paused' : 'Connected and live')
+                            {waStatus?.status === 'connected'
+                                ? (waStatus?.autoReplyEnabled === false ? 'Connected, auto-replies paused' : 'Connected and live')
                                 : 'Not connected'}
                         </div>
                     </div>
                     <p className="mt-3 text-sm leading-7 text-[#627168]">
-                        {profile?.status === 'connected'
-                            ? profile?.autoReplyEnabled === false
+                        {waStatus?.status === 'connected'
+                            ? waStatus?.autoReplyEnabled === false
                                 ? 'Customers can still message the number, but the assistant is currently silent until you resume it.'
                                 : 'Customers can message your number right now and receive automated product and payment guidance.'
                             : 'Connect your business number to activate WhatsApp sales flows and payment-link delivery.'}
                     </p>
                 </div>
             </section>
+
+            {statsError ? (
+                <QueryError message="Could not load order metrics. Refresh to try again." />
+            ) : null}
 
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {statCards.map((card) => (

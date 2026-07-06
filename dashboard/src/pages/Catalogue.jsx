@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { queryKeys } from '../query';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { Badge, QueryError, inputClassName, primaryButtonClassName, secondaryButtonClassName } from '../components/ui';
 
 export default function Catalogue() {
     const [showModal, setShowModal] = useState(false);
@@ -11,8 +12,10 @@ export default function Catalogue() {
     const [form, setForm] = useState({ name: '', description: '', price: '', inStock: true });
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState('');
+    const [previewObjectUrl, setPreviewObjectUrl] = useState('');
+    const [formError, setFormError] = useState('');
     const queryClient = useQueryClient();
-    const { data: products = [], isLoading } = useQuery({
+    const { data: products = [], isLoading, isError } = useQuery({
         queryKey: queryKeys.products,
         queryFn: api.getProducts,
     });
@@ -41,6 +44,35 @@ export default function Catalogue() {
 
     useBodyScrollLock(showModal);
 
+    useEffect(() => {
+        return () => {
+            if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+        };
+    }, [previewObjectUrl]);
+
+    useEffect(() => {
+        if (!showModal) return undefined;
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') closeModal();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [showModal, productActionBusy]);
+
+    const clearImagePreview = () => {
+        if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+        setPreviewObjectUrl('');
+        setImagePreview('');
+    };
+
+    const closeModal = () => {
+        if (productActionBusy) return;
+        setShowModal(false);
+        setFormError('');
+        setImageFile(null);
+        clearImagePreview();
+    };
+
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setForm({ ...form, [name]: type === 'checkbox' ? checked : value });
@@ -49,8 +81,9 @@ export default function Catalogue() {
     const openAdd = () => {
         setEditing(null);
         setForm({ name: '', description: '', price: '', inStock: true });
+        setFormError('');
         setImageFile(null);
-        setImagePreview('');
+        clearImagePreview();
         setShowModal(true);
     };
 
@@ -63,32 +96,52 @@ export default function Catalogue() {
             inStock: product.inStock,
         });
         setImageFile(null);
+        if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+        setPreviewObjectUrl('');
         setImagePreview(product.imageUrl || '');
+        setFormError('');
         setShowModal(true);
     };
 
     const handleImageChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        const nextPreview = URL.createObjectURL(file);
         setImageFile(file);
-        setImagePreview(URL.createObjectURL(file));
+        if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+        setPreviewObjectUrl(nextPreview);
+        setImagePreview(nextPreview);
     };
 
-    const handleSave = async () => {
+    const handleSave = async (e) => {
+        e?.preventDefault();
+        setFormError('');
+        const price = parseFloat(form.price);
+        if (!Number.isFinite(price) || price <= 0) {
+            setFormError('Enter a product price greater than zero.');
+            return;
+        }
+        const name = form.name.trim();
+        if (!name) {
+            setFormError('Enter a product name.');
+            return;
+        }
+
         const payload = {
-            name: form.name,
+            name,
             description: form.description || null,
-            price: Math.round(parseFloat(form.price) * 100),
+            price: Math.round(price * 100),
             inStock: form.inStock,
         };
 
         try {
             await saveProductMutation.mutateAsync({ productId: editing?.id, payload, file: imageFile });
             setShowModal(false);
+            setFormError('');
             setImageFile(null);
-            setImagePreview('');
+            clearImagePreview();
         } catch (err) {
-            alert(err.message);
+            setFormError(err.message);
         }
     };
 
@@ -118,14 +171,16 @@ export default function Catalogue() {
                     </p>
                 </div>
                 <button
-                    className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(21,61,50,0.18)] transition hover:bg-[#1b4a3d]"
+                    className={primaryButtonClassName}
                     onClick={openAdd}
                 >
                     + Add Product
                 </button>
             </div>
 
-            {loading ? (
+            {isError && products.length === 0 ? (
+                <QueryError message="Could not load products. Refresh before editing the catalogue." />
+            ) : loading ? (
                 <CatalogueSkeleton />
             ) : products.length === 0 ? (
                 <div className="rounded-[28px] border border-dashed border-[#d8cfbc] bg-[#fbf8f2] px-6 py-16 text-center">
@@ -135,7 +190,7 @@ export default function Catalogue() {
                         Add products so the assistant knows what it can sell, price, and convert into a payment link.
                     </p>
                     <button
-                        className="mt-8 rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(21,61,50,0.18)] transition hover:bg-[#1b4a3d]"
+                        className={`${primaryButtonClassName} mt-8`}
                         onClick={openAdd}
                     >
                         Add Your First Product
@@ -157,23 +212,16 @@ export default function Catalogue() {
                                         {formatPrice(p.price)}
                                     </div>
                                 </div>
-                                <span
-                                    className={[
-                                        'rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]',
-                                        p.inStock
-                                            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                                            : 'bg-red-50 text-red-700 ring-1 ring-red-200',
-                                    ].join(' ')}
-                                >
+                                <Badge tone={p.inStock ? 'success' : 'danger'}>
                                     {p.inStock ? 'In Stock' : 'Out of Stock'}
-                                </span>
+                                </Badge>
                             </div>
                             <p className="mt-4 min-h-16 text-sm leading-7 text-[#627168]">
                                 {p.description || 'No extra description added yet.'}
                             </p>
                             <div className="mt-6 flex gap-3">
                                 <button
-                                    className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-4 py-2.5 text-sm font-semibold text-[#294136] transition hover:border-[#b8ac95] hover:bg-[#f1ebdf]"
+                                    className={secondaryButtonClassName}
                                     onClick={() => openEdit(p)}
                                 >
                                     Edit
@@ -192,8 +240,8 @@ export default function Catalogue() {
             )}
 
             {showModal && typeof document !== 'undefined' && createPortal(
-                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#15231d]/45 px-4 py-4 backdrop-blur-sm sm:py-8" onClick={() => setShowModal(false)}>
-                    <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[30px] border border-[#e8decc] bg-[#fffdf8] shadow-[0_24px_70px_rgba(21,35,29,0.18)] sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#15231d]/45 px-4 py-4 backdrop-blur-sm sm:py-8" onClick={closeModal}>
+                    <form className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[30px] border border-[#e8decc] bg-[#fffdf8] shadow-[0_24px_70px_rgba(21,35,29,0.18)] sm:max-h-[calc(100dvh-4rem)]" onSubmit={handleSave} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
                         <div className="shrink-0 px-6 pt-6 md:px-7 md:pt-7">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
                                 {editing ? 'Edit Product' : 'Add Product'}
@@ -203,10 +251,16 @@ export default function Catalogue() {
                             </h2>
                         </div>
                         <div className="mt-5 min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-5 md:px-7">
+                            {formError && (
+                                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                                    {formError}
+                                </div>
+                            )}
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-[#294136]">Product Name</label>
+                                <label className="text-sm font-semibold text-[#294136]" htmlFor="product-name">Product Name</label>
                                 <input
-                                    className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                                    id="product-name"
+                                    className={inputClassName}
                                     name="name"
                                     value={form.name}
                                     onChange={handleChange}
@@ -215,9 +269,10 @@ export default function Catalogue() {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-[#294136]">Description</label>
+                                <label className="text-sm font-semibold text-[#294136]" htmlFor="product-description">Description</label>
                                 <input
-                                    className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                                    id="product-description"
+                                    className={inputClassName}
                                     name="description"
                                     value={form.description}
                                     onChange={handleChange}
@@ -226,13 +281,14 @@ export default function Catalogue() {
                             </div>
                             <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-semibold text-[#294136]">Price (₦)</label>
+                                    <label className="text-sm font-semibold text-[#294136]" htmlFor="product-price">Price (₦)</label>
                                     <input
-                                        className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
+                                        id="product-price"
+                                        className={inputClassName}
                                         name="price"
                                         type="number"
                                         step="0.01"
-                                        min="0"
+                                        min="1"
                                         value={form.price}
                                         onChange={handleChange}
                                         placeholder="e.g. 2500"
@@ -274,14 +330,14 @@ export default function Catalogue() {
                             </div>
                         </div>
                         <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-[#eee5d4] bg-[#fffdf8] px-6 py-4 sm:flex-row sm:justify-end md:px-7">
-                            <button className="rounded-2xl border border-[#d8cfbc] bg-[#f8f4ec] px-5 py-3 text-sm font-semibold text-[#294136] transition hover:border-[#b8ac95] hover:bg-[#f1ebdf] disabled:cursor-not-allowed disabled:opacity-60" onClick={() => setShowModal(false)} disabled={productActionBusy}>
+                            <button type="button" className={secondaryButtonClassName} onClick={closeModal} disabled={productActionBusy}>
                                 Cancel
                             </button>
-                            <button className="rounded-2xl bg-[#153d32] px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(21,61,50,0.18)] transition hover:bg-[#1b4a3d] disabled:cursor-not-allowed disabled:opacity-60" onClick={handleSave} disabled={productActionBusy}>
+                            <button type="submit" className={primaryButtonClassName} disabled={productActionBusy}>
                                 {saveProductMutation.isPending ? 'Saving...' : editing ? 'Save Changes' : 'Add Product'}
                             </button>
                         </div>
-                    </div>
+                    </form>
                 </div>,
                 document.body
             )}

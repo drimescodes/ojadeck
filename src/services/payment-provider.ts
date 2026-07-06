@@ -157,6 +157,16 @@ function nombaOperationSucceeded(response: Response, data: any): boolean {
         || message === "success";
 }
 
+function nombaLogSummary(data: any): Record<string, unknown> {
+    return {
+        code: data?.code,
+        status: data?.status,
+        description: data?.description,
+        message: data?.message,
+        requestId: data?.requestId || data?.data?.requestId,
+    };
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
     const text = await response.text();
     try {
@@ -277,7 +287,7 @@ export async function verifyTransaction(params: VerifyTransactionParams): Promis
 
         const data = await readJsonResponse<any>(response);
         if (!response.ok || (data.code && data.code !== "00")) {
-            logger.warn({ status: response.status, response: data, kind }, "Nomba transaction verification failed");
+            logger.warn({ status: response.status, kind, nomba: nombaLogSummary(data) }, "Nomba transaction verification failed");
             throw new Error(`Nomba transaction verification failed: ${data.description || response.statusText}`);
         }
 
@@ -312,7 +322,7 @@ export async function fetchBanks(): Promise<NombaBank[]> {
 
     const data = await readJsonResponse<any>(response);
     if (!response.ok || (data.code && data.code !== "00")) {
-        logger.warn({ status: response.status, response: data }, "Nomba bank list fetch failed");
+        logger.warn({ status: response.status, nomba: nombaLogSummary(data) }, "Nomba bank list fetch failed");
         throw new Error(`Nomba bank list fetch failed: ${data.description || response.statusText}`);
     }
 
@@ -342,7 +352,7 @@ export async function lookupBankAccount(params: LookupBankAccountParams): Promis
 
     const data = await readJsonResponse<any>(response);
     if (!response.ok || (data.code && data.code !== "00")) {
-        logger.warn({ status: response.status, response: data }, "Nomba bank account lookup failed");
+        logger.warn({ status: response.status, nomba: nombaLogSummary(data) }, "Nomba bank account lookup failed");
         throw new Error(`Nomba bank account lookup failed: ${data.description || response.statusText}`);
     }
 
