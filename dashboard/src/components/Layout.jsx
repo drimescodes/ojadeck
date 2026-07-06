@@ -1,14 +1,23 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import OjaDeckLogo from './OjaDeckLogo';
+import { api } from '../api';
 
 export default function Layout({ children }) {
     const navigate = useNavigate();
     const location = useLocation();
+    const queryClient = useQueryClient();
     const seller = JSON.parse(localStorage.getItem('seller') || '{}');
 
-    const handleLogout = () => {
-        localStorage.removeItem('token');
+    const handleLogout = async () => {
+        try {
+            await api.logout();
+        } catch {
+            // Local cleanup still happens if the server session already expired.
+        }
         localStorage.removeItem('seller');
+        localStorage.removeItem('token');
+        queryClient.clear();
         navigate('/login');
     };
 

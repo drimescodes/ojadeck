@@ -14,7 +14,7 @@ const ALLOWED_IMAGE_TYPES = new Map([
 ]);
 
 async function detectImageMime(file: File): Promise<string | null> {
-    const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const header = new Uint8Array(await file.arrayBuffer()).subarray(0, 12);
 
     if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
         return "image/jpeg";

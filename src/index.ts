@@ -13,7 +13,7 @@ import ordersRouter from "./routes/orders";
 import walletRouter from "./routes/wallet";
 import webhooksRouter from "./routes/webhooks";
 import { createWhatsAppRoutes } from "./routes/whatsapp";
-import jwt from "./utils/jwt";
+import { clearSession, createSession, getSessionPayloadFromCookieHeader } from "./utils/session";
 
 // Import seller route handlers directly
 import { db } from "./db";
@@ -121,7 +121,7 @@ app.post("/api/auth/register", async (c) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     await db.insert(sellers).values({ id, email: normalizedEmail, password: hashedPassword, businessName, personalPhone: personalPhone || null });
 
-    const token = jwt.sign({ sellerId: id, email: normalizedEmail });
+    createSession(c, { sellerId: id, email: normalizedEmail });
     return c.json({
         seller: {
             id,
@@ -133,7 +133,6 @@ app.post("/api/auth/register", async (c) => {
             aiBusinessContext: null,
             aiInstructions: null,
         },
-        token,
     });
 });
 
@@ -147,7 +146,7 @@ app.post("/api/auth/login", async (c) => {
         return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    const token = jwt.sign({ sellerId: seller.id, email: seller.email });
+    createSession(c, { sellerId: seller.id, email: seller.email });
     return c.json({
         seller: {
             id: seller.id, email: seller.email, businessName: seller.businessName,
@@ -157,8 +156,12 @@ app.post("/api/auth/login", async (c) => {
             aiBusinessContext: seller.aiBusinessContext,
             aiInstructions: seller.aiInstructions,
         },
-        token,
     });
+});
+
+app.post("/api/auth/logout", (c) => {
+    clearSession(c);
+    return c.json({ success: true });
 });
 
 // Payment webhooks (no auth)
@@ -244,10 +247,8 @@ const server = Bun.serve<{ sellerId: string }>({
     fetch(req, server) {
         const url = new URL(req.url);
         if (url.pathname === "/ws") {
-            const token = url.searchParams.get("token");
-            if (!token) return new Response("Missing token", { status: 401 });
-            const payload = jwt.verify(token);
-            if (!payload?.sellerId) return new Response("Invalid token", { status: 401 });
+            const payload = getSessionPayloadFromCookieHeader(req.headers.get("cookie"));
+            if (!payload?.sellerId) return new Response("Authentication required", { status: 401 });
             const upgraded = server.upgrade(req, { data: { sellerId: payload.sellerId } });
             if (upgraded) return undefined;
             return new Response("WebSocket upgrade failed", { status: 500 });

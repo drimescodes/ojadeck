@@ -43,9 +43,11 @@ https://ojadeck.drimes.dev/api/webhooks/payments
 
 ## Authentication and Access Control
 
-- Dashboard authentication uses JWTs signed by the backend.
+- Dashboard authentication uses backend-signed JWT sessions stored in an `HttpOnly` cookie.
 - `JWT_SECRET` is required at startup and must be a non-placeholder random value.
-- Protected API routes require `Authorization: Bearer <token>`.
+- Protected API routes read the session from the `ojadeck_session` cookie.
+- Mutating protected API routes require `X-CSRF-Token` to match the readable `ojadeck_csrf` cookie and the CSRF value embedded in the session JWT.
+- Logout clears the session and CSRF cookies server-side.
 - Seller-scoped routes read `sellerId` from the verified JWT.
 - Product, order, WhatsApp, and seller profile operations are scoped to the authenticated seller.
 - Payment webhooks are public by URL but protected by Nomba HMAC signature verification.
@@ -146,6 +148,7 @@ Secrets are expected in server environment variables:
 
 ```text
 JWT_SECRET
+SESSION_COOKIE_SECURE
 GEMINI_API_KEY
 OPENROUTER_API_KEY
 NOMBA_*_CLIENT_ID

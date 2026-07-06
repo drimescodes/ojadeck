@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import OjaDeckLogo from '../components/OjaDeckLogo';
 
@@ -9,6 +10,7 @@ export default function Login() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -17,8 +19,9 @@ export default function Login() {
 
         try {
             const data = await api.login({ email, password });
-            localStorage.setItem('token', data.token);
+            localStorage.removeItem('token');
             localStorage.setItem('seller', JSON.stringify(data.seller));
+            queryClient.clear();
             navigate('/');
         } catch (err) {
             setError(err.message);

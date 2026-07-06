@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 
 export default function Register() {
@@ -7,6 +8,7 @@ export default function Register() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
 
     const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -17,8 +19,9 @@ export default function Register() {
 
         try {
             const data = await api.register(form);
-            localStorage.setItem('token', data.token);
+            localStorage.removeItem('token');
             localStorage.setItem('seller', JSON.stringify(data.seller));
+            queryClient.clear();
             navigate('/');
         } catch (err) {
             setError(err.message);
@@ -103,9 +106,9 @@ export default function Register() {
                                     className="w-full rounded-2xl border border-[#d9d1bf] bg-[#fffdf8] px-4 py-3 text-sm text-[#18231d] outline-none transition placeholder:text-[#8b8f83] focus:border-[#1f9d63] focus:ring-4 focus:ring-[#1f9d63]/10"
                                     value={form.password}
                                     onChange={handleChange}
-                                    placeholder="Minimum 6 characters"
+                                    placeholder="Minimum 8 characters"
                                     required
-                                    minLength={6}
+                                    minLength={8}
                                 />
                             </div>
                             <div className="space-y-2">
