@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { queryKeys } from '../query';
@@ -13,7 +14,25 @@ export default function Dashboard() {
         queryFn: api.getWhatsAppStatus,
         refetchInterval: 15000,
     });
+    const { data: profile } = useQuery({
+        queryKey: queryKeys.profile,
+        queryFn: api.getProfile,
+    });
+    const { data: products = [] } = useQuery({
+        queryKey: queryKeys.products,
+        queryFn: api.getProducts,
+    });
+    const { data: payouts = [] } = useQuery({
+        queryKey: queryKeys.payouts,
+        queryFn: api.getPayouts,
+    });
     const seller = JSON.parse(localStorage.getItem('seller') || '{}');
+    const hasSellableProduct = products.some((product) => product.inStock && product.price > 0);
+    const whatsappReady = waStatus?.status === 'connected' && waStatus?.autoReplyEnabled !== false;
+    const hasAiTraining = Boolean(profile?.aiTone || profile?.aiBusinessContext || profile?.aiInstructions);
+    const hasTrackedOrder = Number(stats?.totalOrders || 0) > 0;
+    const hasPaidOrder = Number(stats?.paidCount || 0) > 0;
+    const hasPayout = payouts.some((payout) => ['processing', 'success'].includes(payout.status));
 
     const statCards = [
         {
@@ -39,6 +58,44 @@ export default function Dashboard() {
             value: stats?.totalRevenueDisplay ?? '₦0',
             tone: 'text-[#153d32]',
             hint: 'Gross paid volume processed through the bot',
+        },
+    ];
+    const launchChecklist = [
+        {
+            label: 'Add product',
+            hint: 'One in-stock item with a live price.',
+            done: hasSellableProduct,
+            to: '/dashboard/catalogue',
+        },
+        {
+            label: 'Connect WhatsApp',
+            hint: 'Linked number with auto-replies active.',
+            done: whatsappReady,
+            to: '/dashboard/whatsapp',
+        },
+        {
+            label: 'Train AI',
+            hint: 'Tone, context, or rules saved.',
+            done: hasAiTraining,
+            to: '/dashboard/settings',
+        },
+        {
+            label: 'Send test chat',
+            hint: 'Customer chat creates a tracked order.',
+            done: hasTrackedOrder,
+            to: '/dashboard/orders',
+        },
+        {
+            label: 'Receive payment',
+            hint: 'Paid order credits the wallet.',
+            done: hasPaidOrder,
+            to: '/dashboard/wallet',
+        },
+        {
+            label: 'Withdraw payout',
+            hint: 'Live transfer submitted to bank.',
+            done: hasPayout,
+            to: '/dashboard/wallet',
         },
     ];
 
@@ -129,27 +186,41 @@ export default function Dashboard() {
 
                 <div className="rounded-[26px] border border-[#e7dfcf] bg-white p-6 shadow-[0_12px_28px_rgba(104,85,45,0.05)]">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7b6b48]">
-                        Quick Start
+                        Launch Checklist
                     </div>
                     <h2 className="mt-3 text-2xl font-bold tracking-[-0.04em] text-[#18231d]">
-                        Next operator steps
+                        Judge-ready path
                     </h2>
-                    <ol className="mt-5 space-y-4">
-                        {[
-                            'Add products with clean names, prices, and stock states.',
-                            'Keep WhatsApp linked and test a full customer chat from greeting to payment.',
-                            'Pause auto-replies only when you want to take over manually.',
-                        ].map((item, index) => (
-                            <li key={item} className="flex gap-4 rounded-2xl border border-[#efe8d8] bg-[#fffcf6] px-4 py-4">
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#153d32] text-sm font-bold text-white">
-                                    {index + 1}
-                                </div>
-                                <p className="text-sm leading-7 text-[#31453b]">{item}</p>
-                            </li>
+                    <div className="mt-5 grid gap-3">
+                        {launchChecklist.map((item) => (
+                            <ChecklistItem key={item.label} item={item} />
                         ))}
-                    </ol>
+                    </div>
                 </div>
             </section>
         </div>
+    );
+}
+
+function ChecklistItem({ item }) {
+    return (
+        <Link
+            to={item.to}
+            className="flex items-center gap-3 rounded-2xl border border-[#efe8d8] bg-[#fffcf6] px-4 py-3 transition hover:border-[#d8cfbc] hover:bg-[#fbf6ec]"
+        >
+            <div
+                className={[
+                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-extrabold',
+                    item.done ? 'bg-[#1f9d63] text-white' : 'bg-[#f0e4cc] text-[#7b6b48]',
+                ].join(' ')}
+            >
+                {item.done ? '✓' : '•'}
+            </div>
+            <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-[#18231d]">{item.label}</div>
+                <div className="mt-0.5 text-xs leading-5 text-[#6b756e]">{item.hint}</div>
+            </div>
+            <div className="text-xs font-bold text-[#7b6b48]">Open</div>
+        </Link>
     );
 }

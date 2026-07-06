@@ -41,6 +41,19 @@ https://ojadeck.drimes.dev/api/webhooks/payments
 11. Merchant saves a verified payout account and confirms a withdrawal from the Wallet dashboard.
 12. OjaDeck reserves the payout amount in the ledger and submits a live Nomba bank transfer from the hackathon sub-account.
 
+## Demo Flow
+
+Use the deployed dashboard to test the core path:
+
+1. Log in to the merchant dashboard.
+2. Confirm the catalogue has at least one in-stock product with a live price.
+3. Confirm WhatsApp is connected and auto-replies are active.
+4. Send a customer message asking for a product.
+5. Let the assistant confirm the order and send a Nomba Checkout link.
+6. Complete payment through the checkout page.
+7. Confirm the order changes to paid, the wallet is credited, and the customer receives a WhatsApp payment confirmation.
+8. Use the Wallet page to review and confirm a payout to the saved bank account.
+
 ## Authentication and Access Control
 
 - Dashboard authentication uses backend-signed JWT sessions stored in an `HttpOnly` cookie.

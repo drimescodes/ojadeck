@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -27,8 +28,8 @@ function ProtectedRoute({ children }) {
     if (isLoading) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-[#f7f3ea] px-4">
-                <div className="rounded-[28px] border border-[#e7dfcf] bg-[#fffdf8] px-6 py-5 text-sm font-semibold text-[#294136] shadow-[0_20px_60px_rgba(21,35,29,0.1)]">
-                    Loading dashboard...
+                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#e7dfcf] bg-[#fffdf8] shadow-[0_20px_60px_rgba(21,35,29,0.1)]">
+                    <div className="h-7 w-7 animate-spin rounded-full border-4 border-[#d9d1bf] border-t-[#153d32]" />
                 </div>
             </div>
         );
@@ -64,10 +65,11 @@ export default function App() {
     return (
         <BrowserRouter>
             <Routes>
+                <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route
-                    path="/*"
+                    path="/dashboard/*"
                     element={
                         <ProtectedRoute>
                             <Layout>
@@ -83,6 +85,7 @@ export default function App() {
                         </ProtectedRoute>
                     }
                 />
+                <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </BrowserRouter>
     );

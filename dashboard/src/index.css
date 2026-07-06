@@ -83,9 +83,40 @@ button {
   }
 }
 
+.oja-rise {
+  animation: oja-rise-in 640ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes oja-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.oja-float {
+  animation: oja-float-y 6s ease-in-out infinite;
+}
+
+@keyframes oja-float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .route-surface,
-  .skeleton::after {
+  .skeleton::after,
+  .oja-rise,
+  .oja-float {
     animation: none;
   }
 }

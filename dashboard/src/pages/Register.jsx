@@ -22,7 +22,7 @@ export default function Register() {
             localStorage.removeItem('token');
             localStorage.setItem('seller', JSON.stringify(data.seller));
             queryClient.clear();
-            navigate('/');
+            navigate('/dashboard');
         } catch (err) {
             setError(err.message);
         } finally {

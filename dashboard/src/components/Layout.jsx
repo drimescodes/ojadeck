@@ -22,12 +22,12 @@ export default function Layout({ children }) {
     };
 
     const navItems = [
-        { to: '/', label: 'Dashboard', kicker: 'Overview' },
-        { to: '/whatsapp', label: 'WhatsApp', kicker: 'Channel' },
-        { to: '/catalogue', label: 'Catalogue', kicker: 'Products' },
-        { to: '/orders', label: 'Orders', kicker: 'Sales' },
-        { to: '/wallet', label: 'Wallet', kicker: 'Payouts' },
-        { to: '/settings', label: 'Settings', kicker: 'Profile' },
+        { to: '/dashboard', label: 'Dashboard', kicker: 'Overview' },
+        { to: '/dashboard/whatsapp', label: 'WhatsApp', kicker: 'Channel' },
+        { to: '/dashboard/catalogue', label: 'Catalogue', kicker: 'Products' },
+        { to: '/dashboard/orders', label: 'Orders', kicker: 'Sales' },
+        { to: '/dashboard/wallet', label: 'Wallet', kicker: 'Payouts' },
+        { to: '/dashboard/settings', label: 'Settings', kicker: 'Profile' },
     ];
 
     return (
@@ -55,7 +55,7 @@ export default function Layout({ children }) {
                                 <NavLink
                                     key={item.to}
                                     to={item.to}
-                                    end={item.to === '/'}
+                                    end={item.to === '/dashboard'}
                                     className={({ isActive }) =>
                                         [
                                             'group rounded-2xl border px-4 py-3 transition',
