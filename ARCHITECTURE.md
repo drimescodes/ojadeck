@@ -26,6 +26,17 @@ https://ojadeck.drimes.dev/api/webhooks/payments
 - Payments: Nomba Checkout order creation, webhook signature verification, optional strict transaction verification, internal seller ledger, and Nomba Transfers for payouts.
 - Uploads: local product images stored under `uploads/products/...` and served from `/uploads/...`.
 
+## Deployment
+
+The MVP is deployed on a DigitalOcean VPS at `ojadeck.drimes.dev`.
+
+- Caddy terminates HTTPS and proxies traffic to the Bun/Hono app.
+- The Bun app runs as a systemd service.
+- The backend serves the built React dashboard from `dashboard/dist`.
+- GitHub Actions runs typecheck on push to `main`, SSHes into the VPS, pulls the latest code, builds the dashboard, and restarts the service.
+- Runtime files stay on the VPS and are not committed: SQLite data, WhatsApp session files, uploaded product images, and hosted demo media.
+- Secrets are supplied through VPS environment variables, not the repository.
+
 ## Data Flow
 
 1. Merchant registers, logs in, adds catalogue items, uploads product images, and optionally configures AI training instructions.
@@ -178,6 +189,7 @@ Runtime state is ignored by git:
 ```text
 data/
 uploads/
+demo-media/
 .wwebjs_auth/
 .wwebjs_cache/
 ```
