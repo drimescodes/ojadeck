@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { customers, sellers, orders, conversations, products } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ne } from "drizzle-orm";
 import {
     generateAIResponse,
     parseOrderConfirmation,
@@ -27,6 +27,12 @@ interface SessionManager {
 type OrderItem = { name: string; qty: number; price: number };
 type OrderData = { items: OrderItem[]; total: number };
 type ProductMedia = { name: string; imageUrl: string };
+type CatalogueProduct = {
+    id: string;
+    name: string;
+    price: number;
+    imageUrl: string | null;
+};
 
 type OrderValidationResult =
     | { ok: true; orderData: OrderData; corrected: boolean; mediaProducts: ProductMedia[] }
@@ -74,6 +80,40 @@ function normalizeProductName(name: string): string {
         .replace(/\s+/g, " ")
         .trim()
         .replace(/\b(\w{4,})s\b/g, "$1");
+}
+
+function findBestCatalogueProduct<T extends CatalogueProduct>(
+    catalogue: T[],
+    requestedName: string
+): { product: T; ambiguous: false } | { product: null; ambiguous: true; matches: T[] } | null {
+    const requested = normalizeProductName(requestedName);
+    if (!requested) return null;
+
+    const normalized = catalogue
+        .map((product) => ({ product, name: normalizeProductName(product.name) }))
+        .filter((entry) => entry.name.length > 0);
+
+    const exact = normalized.find((entry) => entry.name === requested);
+    if (exact) return { product: exact.product, ambiguous: false };
+
+    const candidates = normalized
+        .filter((entry) => requested.includes(entry.name) || entry.name.includes(requested))
+        .sort((a, b) => b.name.length - a.name.length);
+
+    if (candidates.length === 0) return null;
+
+    const fullNameMentions = candidates.filter((entry) => requested.includes(entry.name));
+    const bestFullNameMention = fullNameMentions[0];
+    if (bestFullNameMention) {
+        return { product: bestFullNameMention.product, ambiguous: false };
+    }
+
+    if (candidates.length > 1) {
+        return { product: null, ambiguous: true, matches: candidates.map((entry) => entry.product) };
+    }
+
+    const bestCandidate = candidates[0];
+    return bestCandidate ? { product: bestCandidate.product, ambiguous: false } : null;
 }
 
 function escapeRegex(value: string): string {
@@ -301,16 +341,9 @@ async function findMentionedProductWithImage(sellerId: string, message: string):
         where: and(eq(products.sellerId, sellerId), eq(products.inStock, true)),
     });
 
-    const matches = catalogue
-        .filter((product) => product.imageUrl)
-        .filter((product) => {
-            const productName = normalizeProductName(product.name);
-            return requested === productName || requested.includes(productName) || productName.includes(requested);
-        })
-        .sort((a, b) => b.name.length - a.name.length);
-
-    const product = matches[0];
-    return product?.imageUrl ? { name: product.name, imageUrl: product.imageUrl } : null;
+    const match = findBestCatalogueProduct(catalogue, requested);
+    if (!match || match.ambiguous || !match.product.imageUrl) return null;
+    return { name: match.product.name, imageUrl: match.product.imageUrl };
 }
 
 async function getLatestPendingOrder(conversationId: string) {
@@ -320,11 +353,17 @@ async function getLatestPendingOrder(conversationId: string) {
     });
 }
 
-async function cancelPendingOrders(conversationId: string): Promise<void> {
+async function cancelPendingOrders(conversationId: string, exceptOrderId?: string): Promise<void> {
+    const filters = [
+        eq(orders.conversationId, conversationId),
+        eq(orders.status, "pending"),
+    ];
+    if (exceptOrderId) filters.push(ne(orders.id, exceptOrderId));
+
     await db
         .update(orders)
         .set({ status: "cancelled" })
-        .where(and(eq(orders.conversationId, conversationId), eq(orders.status, "pending")));
+        .where(and(...filters));
 }
 
 async function handlePendingPaymentMessage(
@@ -345,17 +384,16 @@ async function handlePendingPaymentMessage(
 
     if (!isLikelyFreshOrderIntent(customerMessage)) return "continue";
 
-    await cancelPendingOrders(conversation.id);
-    await updateConversationState(conversation.id, "awaiting_order");
-
     if (isResetOrderIntent(customerMessage) && !/\b(order|buy|get|want|need|take)\b/i.test(customerMessage)) {
+        await cancelPendingOrders(conversation.id);
+        await updateConversationState(conversation.id, "awaiting_order");
         const reply = "No problem, I've cancelled the pending payment link. What would you like to order now?";
         await msg.reply(reply);
         await saveMessage(conversation.id, "assistant", reply);
         return "handled";
     }
 
-    logger.info({ conversationId: conversation.id }, "Cancelled pending order before starting a fresh order");
+    logger.info({ conversationId: conversation.id }, "Customer may be replacing a pending order; keeping existing payment link until replacement validates");
     return "continue";
 }
 
@@ -389,10 +427,19 @@ async function validateOrderAgainstCatalogue(
             };
         }
 
-        const matchedProduct = catalogue.find((product) => {
-            const productName = normalizeProductName(product.name);
-            return requestedName === productName || requestedName.includes(productName) || productName.includes(requestedName);
-        });
+        const match = findBestCatalogueProduct(catalogue, requestedName);
+        if (match?.ambiguous) {
+            const options = match.matches
+                .slice(0, 5)
+                .map((product) => `• ${product.name} — ${formatNaira(product.price)}`)
+                .join("\n");
+            return {
+                ok: false,
+                message: `I found a few similar items:\n\n${options}\n\nWhich exact one should I get for you?`,
+            };
+        }
+
+        const matchedProduct = match?.product ?? null;
 
         if (!matchedProduct) {
             const available = catalogue.map((product) => `• ${product.name} — ${formatNaira(product.price)}`).join("\n");
@@ -544,7 +591,8 @@ export async function handleIncomingMessage(
             await handleEscalation(sellerId, { ...customer, phone: customerPhone }, escalation, msg, cleanMsg);
         } else {
             // ─── Normal response ─────────────────────────────────
-            const mentionedProduct = await findMentionedProductWithImage(sellerId, customerMessage);
+            const mentionedProduct = await findMentionedProductWithImage(sellerId, customerMessage)
+                || await findMentionedProductWithImage(sellerId, cleanMsg);
             const sentImage = await replyWithProductImage(msg, mentionedProduct, cleanMsg);
             if (!sentImage) {
                 await msg.reply(cleanMsg);
@@ -623,6 +671,8 @@ async function handleOrderConfirmed(
             .update(orders)
             .set({ checkoutUrl })
             .where(eq(orders.id, orderId));
+
+        await cancelPendingOrders(conversation.id, orderId);
 
         // Send AI message + payment link
         const primaryProductImage = validation.mediaProducts[0] || null;

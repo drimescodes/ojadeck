@@ -19,7 +19,6 @@ export default function Register() {
 
         try {
             const data = await api.register(form);
-            localStorage.removeItem('token');
             localStorage.setItem('seller', JSON.stringify(data.seller));
             queryClient.clear();
             navigate('/dashboard');
