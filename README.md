@@ -4,22 +4,14 @@ OjaDeck is a WhatsApp commerce desk for Nigerian merchants. It lets a business c
 
 Built for the DevCareer x Nomba Forward Hackathon 2026.
 
+Demo video:
+
+https://github.com/user-attachments/assets/9f80b738-bcc4-4dc9-a660-672e2b983d97
+
 Live app:
 
 ```text
 https://ojadeck.drimes.dev
-```
-
-Demo video:
-
-```text
-https://ojadeck.drimes.dev/demo
-```
-
-Backup video link:
-
-```text
-https://drive.google.com/file/d/1d8cX9fqLBdrSZGKZM3HEVS2coZnNRMTm/view?usp=drivesdk
 ```
 
 Judge test access:
