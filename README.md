@@ -16,6 +16,15 @@ Demo video:
 https://drive.google.com/file/d/1d8cX9fqLBdrSZGKZM3HEVS2coZnNRMTm/view?usp=drivesdk
 ```
 
+Judge test access:
+
+```text
+Merchant: Bimpe
+Email: drimesbot@gmail.com
+Password: 12345678
+Test WhatsApp business number: +2348077826945
+```
+
 ## What It Does
 
 - Merchant registration and login with HttpOnly cookie sessions.
