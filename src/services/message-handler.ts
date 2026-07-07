@@ -526,8 +526,20 @@ export async function handleIncomingMessage(
         const pendingPaymentResult = await handlePendingPaymentMessage(conversation, customerMessage, msg);
         if (pendingPaymentResult === "handled") return;
 
+        // If the customer has a pending unpaid order, inject context so the AI
+        // knows about it and can remind the customer instead of re-creating it.
+        let aiCustomerMessage = customerMessage;
+        if (conversation.state === "awaiting_payment") {
+            const pendingOrder = await getLatestPendingOrder(conversation.id);
+            if (pendingOrder) {
+                const items = JSON.parse(pendingOrder.items) as OrderItem[];
+                const itemsSummary = items.map((i) => `${i.name} x${i.qty}`).join(", ");
+                aiCustomerMessage = `[SYSTEM NOTE: This customer already has an unpaid order for ${itemsSummary} (total: ${formatNaira(pendingOrder.totalAmount)}) with a pending payment link: ${pendingOrder.checkoutUrl || "(link available)"}. Do NOT create a new order unless the customer explicitly asks to cancel or change their current order. If they seem to be asking about their order or want to pay, remind them about the pending payment and share the link. If they want something different, ask them to confirm cancellation first.]\n\n${customerMessage}`;
+            }
+        }
+
         // Generate AI response
-        const aiResponse = await generateAIResponse(sellerId, conversation.id, customerMessage);
+        const aiResponse = await generateAIResponse(sellerId, conversation.id, aiCustomerMessage);
 
         // Parse for order confirmation
         const orderData = parseOrderConfirmation(aiResponse);
@@ -578,6 +590,13 @@ async function handleOrderConfirmed(
     msg: any,
     cleanMsg: string
 ): Promise<void> {
+    // Guard: cancel any existing pending orders to prevent duplicates
+    const existingPending = await getLatestPendingOrder(conversation.id);
+    if (existingPending) {
+        await cancelPendingOrders(conversation.id);
+        logger.info({ conversationId: conversation.id, cancelledOrderId: existingPending.id }, "Cancelled existing pending order before creating new one");
+    }
+
     const validation = await validateOrderAgainstCatalogue(sellerId, orderData, customerMessage);
     if (!validation.ok) {
         await updateConversationState(conversation.id, "awaiting_order");
