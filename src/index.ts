@@ -26,7 +26,7 @@ import { generateId } from "./utils/helpers";
 logger.info("Starting OjaDeck WhatsApp commerce assistant...");
 migrate();
 
-const sessionManager = new SessionManager(2);
+const sessionManager = new SessionManager();
 setSessionManager(sessionManager);
 
 async function rehydrateLinkedSessions(): Promise<void> {

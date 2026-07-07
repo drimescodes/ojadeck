@@ -32,12 +32,10 @@ export class SessionManager extends EventEmitter {
     private intentionallyClosingSessions: Set<string> = new Set();
     private preserveLinkedSessions: Set<string> = new Set();
     private reconnectingSessions: Set<string> = new Set();
-    private maxSessions: number;
     private authBasePath: string;
 
-    constructor(maxSessions = 2) {
+    constructor() {
         super();
-        this.maxSessions = maxSessions;
         this.authBasePath = path.join(process.cwd(), "data", ".wwebjs_auth");
 
         const healthMonitor = setInterval(() => {
@@ -543,10 +541,6 @@ export class SessionManager extends EventEmitter {
             }
             // Destroy stale session before recreating
             await this.destroySession(sellerId);
-        }
-
-        if (this.sessions.size >= this.maxSessions) {
-            throw new Error(`Max sessions (${this.maxSessions}) reached. Disconnect another seller first.`);
         }
 
         logger.info({ sellerId }, "Creating WhatsApp session");
