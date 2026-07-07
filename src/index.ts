@@ -208,6 +208,9 @@ app.route("/api", protectedApi);
 // ─── Uploaded product media ─────────────────────────────
 app.use("/uploads/*", serveStatic({ root: "./" }));
 
+// ─── Hosted demo media ──────────────────────────────────
+app.use("/demo-media/*", serveStatic({ root: "./" }));
+
 // ─── Serve dashboard static files ────────────────────────
 app.use("/*", serveStatic({ root: "./dashboard/dist" }));
 app.get("/*", serveStatic({ root: "./dashboard/dist", path: "index.html" }));

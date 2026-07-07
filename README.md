@@ -13,6 +13,12 @@ https://ojadeck.drimes.dev
 Demo video:
 
 ```text
+https://ojadeck.drimes.dev/demo
+```
+
+Backup video link:
+
+```text
 https://drive.google.com/file/d/1d8cX9fqLBdrSZGKZM3HEVS2coZnNRMTm/view?usp=drivesdk
 ```
 
@@ -40,6 +46,7 @@ Test WhatsApp business number: +2348077826945
 - Customer WhatsApp confirmation after payment.
 - Bank lookup, payout account saving, payout confirmation, and Nomba transfer submission.
 - Public landing page for explaining the product and onboarding merchants.
+- Public demo page with the project video hosted on the OjaDeck domain.
 
 ## Demo Flow
 
