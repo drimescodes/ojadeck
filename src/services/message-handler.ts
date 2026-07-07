@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { customers, sellers, orders, conversations, products } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ne } from "drizzle-orm";
 import {
     generateAIResponse,
     parseOrderConfirmation,
@@ -27,6 +27,12 @@ interface SessionManager {
 type OrderItem = { name: string; qty: number; price: number };
 type OrderData = { items: OrderItem[]; total: number };
 type ProductMedia = { name: string; imageUrl: string };
+type CatalogueProduct = {
+    id: string;
+    name: string;
+    price: number;
+    imageUrl: string | null;
+};
 
 type OrderValidationResult =
     | { ok: true; orderData: OrderData; corrected: boolean; mediaProducts: ProductMedia[] }
@@ -74,6 +80,40 @@ function normalizeProductName(name: string): string {
         .replace(/\s+/g, " ")
         .trim()
         .replace(/\b(\w{4,})s\b/g, "$1");
+}
+
+function findBestCatalogueProduct<T extends CatalogueProduct>(
+    catalogue: T[],
+    requestedName: string
+): { product: T; ambiguous: false } | { product: null; ambiguous: true; matches: T[] } | null {
+    const requested = normalizeProductName(requestedName);
+    if (!requested) return null;
+
+    const normalized = catalogue
+        .map((product) => ({ product, name: normalizeProductName(product.name) }))
+        .filter((entry) => entry.name.length > 0);
+
+    const exact = normalized.find((entry) => entry.name === requested);
+    if (exact) return { product: exact.product, ambiguous: false };
+
+    const candidates = normalized
+        .filter((entry) => requested.includes(entry.name) || entry.name.includes(requested))
+        .sort((a, b) => b.name.length - a.name.length);
+
+    if (candidates.length === 0) return null;
+
+    const fullNameMentions = candidates.filter((entry) => requested.includes(entry.name));
+    const bestFullNameMention = fullNameMentions[0];
+    if (bestFullNameMention) {
+        return { product: bestFullNameMention.product, ambiguous: false };
+    }
+
+    if (candidates.length > 1) {
+        return { product: null, ambiguous: true, matches: candidates.map((entry) => entry.product) };
+    }
+
+    const bestCandidate = candidates[0];
+    return bestCandidate ? { product: bestCandidate.product, ambiguous: false } : null;
 }
 
 function escapeRegex(value: string): string {
@@ -301,16 +341,9 @@ async function findMentionedProductWithImage(sellerId: string, message: string):
         where: and(eq(products.sellerId, sellerId), eq(products.inStock, true)),
     });
 
-    const matches = catalogue
-        .filter((product) => product.imageUrl)
-        .filter((product) => {
-            const productName = normalizeProductName(product.name);
-            return requested === productName || requested.includes(productName) || productName.includes(requested);
-        })
-        .sort((a, b) => b.name.length - a.name.length);
-
-    const product = matches[0];
-    return product?.imageUrl ? { name: product.name, imageUrl: product.imageUrl } : null;
+    const match = findBestCatalogueProduct(catalogue, requested);
+    if (!match || match.ambiguous || !match.product.imageUrl) return null;
+    return { name: match.product.name, imageUrl: match.product.imageUrl };
 }
 
 async function getLatestPendingOrder(conversationId: string) {
@@ -320,11 +353,17 @@ async function getLatestPendingOrder(conversationId: string) {
     });
 }
 
-async function cancelPendingOrders(conversationId: string): Promise<void> {
+async function cancelPendingOrders(conversationId: string, exceptOrderId?: string): Promise<void> {
+    const filters = [
+        eq(orders.conversationId, conversationId),
+        eq(orders.status, "pending"),
+    ];
+    if (exceptOrderId) filters.push(ne(orders.id, exceptOrderId));
+
     await db
         .update(orders)
         .set({ status: "cancelled" })
-        .where(and(eq(orders.conversationId, conversationId), eq(orders.status, "pending")));
+        .where(and(...filters));
 }
 
 async function handlePendingPaymentMessage(
@@ -345,17 +384,16 @@ async function handlePendingPaymentMessage(
 
     if (!isLikelyFreshOrderIntent(customerMessage)) return "continue";
 
-    await cancelPendingOrders(conversation.id);
-    await updateConversationState(conversation.id, "awaiting_order");
-
     if (isResetOrderIntent(customerMessage) && !/\b(order|buy|get|want|need|take)\b/i.test(customerMessage)) {
+        await cancelPendingOrders(conversation.id);
+        await updateConversationState(conversation.id, "awaiting_order");
         const reply = "No problem, I've cancelled the pending payment link. What would you like to order now?";
         await msg.reply(reply);
         await saveMessage(conversation.id, "assistant", reply);
         return "handled";
     }
 
-    logger.info({ conversationId: conversation.id }, "Cancelled pending order before starting a fresh order");
+    logger.info({ conversationId: conversation.id }, "Customer may be replacing a pending order; keeping existing payment link until replacement validates");
     return "continue";
 }
 
@@ -389,10 +427,19 @@ async function validateOrderAgainstCatalogue(
             };
         }
 
-        const matchedProduct = catalogue.find((product) => {
-            const productName = normalizeProductName(product.name);
-            return requestedName === productName || requestedName.includes(productName) || productName.includes(requestedName);
-        });
+        const match = findBestCatalogueProduct(catalogue, requestedName);
+        if (match?.ambiguous) {
+            const options = match.matches
+                .slice(0, 5)
+                .map((product) => `• ${product.name} — ${formatNaira(product.price)}`)
+                .join("\n");
+            return {
+                ok: false,
+                message: `I found a few similar items:\n\n${options}\n\nWhich exact one should I get for you?`,
+            };
+        }
+
+        const matchedProduct = match?.product ?? null;
 
         if (!matchedProduct) {
             const available = catalogue.map((product) => `• ${product.name} — ${formatNaira(product.price)}`).join("\n");
@@ -526,20 +573,8 @@ export async function handleIncomingMessage(
         const pendingPaymentResult = await handlePendingPaymentMessage(conversation, customerMessage, msg);
         if (pendingPaymentResult === "handled") return;
 
-        // If the customer has a pending unpaid order, inject context so the AI
-        // knows about it and can remind the customer instead of re-creating it.
-        let aiCustomerMessage = customerMessage;
-        if (conversation.state === "awaiting_payment") {
-            const pendingOrder = await getLatestPendingOrder(conversation.id);
-            if (pendingOrder) {
-                const items = JSON.parse(pendingOrder.items) as OrderItem[];
-                const itemsSummary = items.map((i) => `${i.name} x${i.qty}`).join(", ");
-                aiCustomerMessage = `[SYSTEM NOTE: This customer already has an unpaid order for ${itemsSummary} (total: ${formatNaira(pendingOrder.totalAmount)}) with a pending payment link: ${pendingOrder.checkoutUrl || "(link available)"}. Do NOT create a new order unless the customer explicitly asks to cancel or change their current order. If they seem to be asking about their order or want to pay, remind them about the pending payment and share the link. If they want something different, ask them to confirm cancellation first.]\n\n${customerMessage}`;
-            }
-        }
-
         // Generate AI response
-        const aiResponse = await generateAIResponse(sellerId, conversation.id, aiCustomerMessage);
+        const aiResponse = await generateAIResponse(sellerId, conversation.id, customerMessage);
 
         // Parse for order confirmation
         const orderData = parseOrderConfirmation(aiResponse);
@@ -591,13 +626,6 @@ async function handleOrderConfirmed(
     msg: any,
     cleanMsg: string
 ): Promise<void> {
-    // Guard: cancel any existing pending orders to prevent duplicates
-    const existingPending = await getLatestPendingOrder(conversation.id);
-    if (existingPending) {
-        await cancelPendingOrders(conversation.id);
-        logger.info({ conversationId: conversation.id, cancelledOrderId: existingPending.id }, "Cancelled existing pending order before creating new one");
-    }
-
     const validation = await validateOrderAgainstCatalogue(sellerId, orderData, customerMessage);
     if (!validation.ok) {
         await updateConversationState(conversation.id, "awaiting_order");
@@ -643,6 +671,8 @@ async function handleOrderConfirmed(
             .update(orders)
             .set({ checkoutUrl })
             .where(eq(orders.id, orderId));
+
+        await cancelPendingOrders(conversation.id, orderId);
 
         // Send AI message + payment link
         const primaryProductImage = validation.mediaProducts[0] || null;

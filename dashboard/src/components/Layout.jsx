@@ -16,7 +16,6 @@ export default function Layout({ children }) {
             // Local cleanup still happens if the server session already expired.
         }
         localStorage.removeItem('seller');
-        localStorage.removeItem('token');
         queryClient.clear();
         navigate('/login');
     };

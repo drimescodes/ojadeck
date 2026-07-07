@@ -19,7 +19,6 @@ export default function Login() {
 
         try {
             const data = await api.login({ email, password });
-            localStorage.removeItem('token');
             localStorage.setItem('seller', JSON.stringify(data.seller));
             queryClient.clear();
             navigate('/dashboard');
