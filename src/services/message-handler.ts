@@ -556,7 +556,8 @@ export async function handleIncomingMessage(
             await handleEscalation(sellerId, { ...customer, phone: customerPhone }, escalation, msg, cleanMsg);
         } else {
             // ─── Normal response ─────────────────────────────────
-            const mentionedProduct = await findMentionedProductWithImage(sellerId, customerMessage);
+            const mentionedProduct = await findMentionedProductWithImage(sellerId, customerMessage)
+                || await findMentionedProductWithImage(sellerId, cleanMsg);
             const sentImage = await replyWithProductImage(msg, mentionedProduct, cleanMsg);
             if (!sentImage) {
                 await msg.reply(cleanMsg);

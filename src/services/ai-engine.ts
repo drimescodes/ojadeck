@@ -280,7 +280,7 @@ function buildSystemPrompt(
         aiBusinessContext?: string | null;
         aiInstructions?: string | null;
     },
-    catalogue: { name: string; description: string | null; price: number; inStock: boolean | null }[]
+    catalogue: { name: string; description: string | null; price: number; inStock: boolean | null; imageUrl: string | null }[]
 ): string {
     const inStockProducts = catalogue.filter((p) => p.inStock !== false);
     const catalogueText =
@@ -288,7 +288,8 @@ function buildSystemPrompt(
             ? inStockProducts
                 .map((p) => {
                     const desc = p.description ? ` — ${p.description}` : "";
-                    return `• ${p.name}: ₦${(p.price / 100).toLocaleString()}${desc}`;
+                    const hasImage = p.imageUrl ? " 📷" : "";
+                    return `• ${p.name}: ₦${(p.price / 100).toLocaleString()}${desc}${hasImage}`;
                 })
                 .join("\n")
             : "No products currently available.";
@@ -318,6 +319,7 @@ YOUR BEHAVIOR:
 - When they want to order, confirm: which items, quantities, and the total
 - NEVER make up products that are not in the catalogue above
 - If a product is not available, say so politely and suggest alternatives
+- Products marked with 📷 in the catalogue have images. When a customer asks to see a product, picture, or photo, mention the exact product name in your reply so the system can attach the image automatically. If they don't specify which product, ask them which one they'd like to see.
 - For complex, unclear, or custom requests, tell the customer you'll connect them with the seller
 - Keep messages short — this is WhatsApp, not email
 - Avoid heavy Markdown formatting. Do not use headings, tables, repeated asterisks, or decorative formatting. Plain short messages are best.
