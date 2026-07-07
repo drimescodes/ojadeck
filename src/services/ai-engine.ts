@@ -44,6 +44,7 @@ function stripInternalTags(text: string): string {
     return text
         .replace(/\[ORDER_CONFIRMED:[\s\S]*$/g, "")
         .replace(/\[ESCALATE:\s*".*?"\]/gs, "")
+        .replace(/\[PRODUCT_IMAGE:\s*".*?"\]/gs, "")
         .trim();
 }
 
@@ -68,6 +69,7 @@ function stripLeakedReasoning(text: string): string {
         !leakedReasoning.test(quote)
         && !quote.includes("[ORDER_CONFIRMED:")
         && !quote.includes("[ESCALATE:")
+        && !quote.includes("[PRODUCT_IMAGE:")
     );
 
     return customerFacingQuote || "Got it. I can help with that.";
@@ -319,7 +321,8 @@ YOUR BEHAVIOR:
 - When they want to order, confirm: which items, quantities, and the total
 - NEVER make up products that are not in the catalogue above
 - If a product is not available, say so politely and suggest alternatives
-- Only products marked with 📷 in the catalogue have images. When a customer asks to see a product, picture, or photo, mention the exact product name in your reply so the system can attach the image automatically.
+- Only products marked with 📷 in the catalogue have images. When a customer asks to see a product, picture, photo, sample, or what it looks like, include this tag with the exact catalogue product name. If you also include ORDER_CONFIRMED, put this image tag before it:
+[PRODUCT_IMAGE: "Product Name"]
 - If a customer asks for a picture of a product without 📷, say the merchant has not uploaded a picture for that product yet, then offer to describe it or help them order.
 - If they ask for a picture but do not specify which product, ask which product they want to see.
 - For complex, unclear, or custom requests, tell the customer you'll connect them with the seller
@@ -364,6 +367,11 @@ export function parseOrderConfirmation(
 export function parseEscalation(response: string): string | null {
     const match = response.match(/\[ESCALATE:\s*"(.+?)"\]/s);
     return match?.[1] ?? null;
+}
+
+export function parseProductImageRequest(response: string): string | null {
+    const match = response.match(/\[PRODUCT_IMAGE:\s*"(.+?)"\]/s);
+    return match?.[1]?.trim() || null;
 }
 
 type ConversationState = "idle" | "awaiting_order" | "awaiting_payment" | "completed" | "escalated";

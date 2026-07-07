@@ -5,6 +5,7 @@ import {
     generateAIResponse,
     parseOrderConfirmation,
     parseEscalation,
+    parseProductImageRequest,
     cleanResponse,
     getOrCreateConversation,
     saveMessage,
@@ -201,6 +202,14 @@ function isPaymentProgressIntent(message: string): boolean {
 function isLikelyFreshOrderIntent(message: string): boolean {
     if (isPaymentProgressIntent(message) || isResendPaymentIntent(message)) return false;
     return isResetOrderIntent(message) || /\b(order|buy|get|want|need|take|another|instead|different|switch)\b/i.test(message);
+}
+
+function isProductImageIntent(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return /\b(picture|pictures|photo|photos|image|images|pic|pics|sample|samples)\b/i.test(normalized)
+        || /\b(see|view)\s+(it|this|that|them|one|the product|the item|what .+ look like)\b/i.test(normalized)
+        || /\b(look like|looks like)\b/i.test(normalized)
+        || /\b(show|send|share)\s+(me\s+)?(a\s+|an\s+|the\s+)?(picture|photo|image|pic|sample)\b/i.test(normalized);
 }
 
 function formatOrderItems(items: OrderItem[]): string {
@@ -579,20 +588,26 @@ export async function handleIncomingMessage(
         // Parse for order confirmation
         const orderData = parseOrderConfirmation(aiResponse);
         const escalation = parseEscalation(aiResponse);
+        const productImageRequest = parseProductImageRequest(aiResponse);
 
         // Clean the response (remove system tags) before sending
         const cleanMsg = cleanResponse(aiResponse);
 
         if (orderData) {
             // ─── Order confirmed flow ────────────────────────────
-            await handleOrderConfirmed(sellerId, { ...customer, phone: customerPhone }, conversation, orderData, customerMessage, msg, cleanMsg);
+            await handleOrderConfirmed(sellerId, { ...customer, phone: customerPhone }, conversation, orderData, customerMessage, msg, cleanMsg, productImageRequest);
         } else if (escalation) {
             // ─── Escalation flow ─────────────────────────────────
             await handleEscalation(sellerId, { ...customer, phone: customerPhone }, escalation, msg, cleanMsg);
         } else {
             // ─── Normal response ─────────────────────────────────
-            const mentionedProduct = await findMentionedProductWithImage(sellerId, customerMessage)
-                || await findMentionedProductWithImage(sellerId, cleanMsg);
+            const wantsProductImage = isProductImageIntent(customerMessage);
+            const mentionedProduct = productImageRequest
+                ? await findMentionedProductWithImage(sellerId, productImageRequest)
+                : wantsProductImage
+                    ? await findMentionedProductWithImage(sellerId, customerMessage)
+                        || await findMentionedProductWithImage(sellerId, cleanMsg)
+                    : null;
             const sentImage = await replyWithProductImage(msg, mentionedProduct, cleanMsg);
             if (!sentImage) {
                 await msg.reply(cleanMsg);
@@ -624,7 +639,8 @@ async function handleOrderConfirmed(
     orderData: OrderData,
     customerMessage: string,
     msg: any,
-    cleanMsg: string
+    cleanMsg: string,
+    productImageRequest: string | null
 ): Promise<void> {
     const validation = await validateOrderAgainstCatalogue(sellerId, orderData, customerMessage);
     if (!validation.ok) {
@@ -675,8 +691,12 @@ async function handleOrderConfirmed(
         await cancelPendingOrders(conversation.id, orderId);
 
         // Send AI message + payment link
-        const primaryProductImage = validation.mediaProducts[0] || null;
-        await replyWithProductImage(msg, primaryProductImage, primaryProductImage ? `${primaryProductImage.name}` : undefined);
+        if (productImageRequest || isProductImageIntent(customerMessage)) {
+            const primaryProductImage = productImageRequest
+                ? await findMentionedProductWithImage(sellerId, productImageRequest)
+                : validation.mediaProducts[0] || null;
+            await replyWithProductImage(msg, primaryProductImage, primaryProductImage ? `${primaryProductImage.name}` : undefined);
+        }
 
         const paymentMsg = `${confirmationMsg}\n\nPay here: ${checkoutUrl}\n\nClick the link above to complete your payment of ${formatNaira(validatedOrder.total)}.`;
         await msg.reply(paymentMsg);

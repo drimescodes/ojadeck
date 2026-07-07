@@ -8,6 +8,7 @@ import { Badge, QueryError, inputClassName, primaryButtonClassName, secondaryBut
 
 export default function Catalogue() {
     const [showModal, setShowModal] = useState(false);
+    const [productToDelete, setProductToDelete] = useState(null);
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState({ name: '', description: '', price: '', inStock: true });
     const [imageFile, setImageFile] = useState(null);
@@ -42,7 +43,8 @@ export default function Catalogue() {
     });
     const productActionBusy = saveProductMutation.isPending || deleteProductMutation.isPending;
 
-    useBodyScrollLock(showModal);
+    const deleteModalOpen = Boolean(productToDelete);
+    useBodyScrollLock(showModal || deleteModalOpen);
 
     useEffect(() => {
         return () => {
@@ -59,6 +61,15 @@ export default function Catalogue() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [showModal, productActionBusy]);
 
+    useEffect(() => {
+        if (!deleteModalOpen) return undefined;
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') closeDeleteModal();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [deleteModalOpen, productActionBusy]);
+
     const clearImagePreview = () => {
         if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
         setPreviewObjectUrl('');
@@ -71,6 +82,12 @@ export default function Catalogue() {
         setFormError('');
         setImageFile(null);
         clearImagePreview();
+    };
+
+    const closeDeleteModal = () => {
+        if (productActionBusy) return;
+        setProductToDelete(null);
+        setFormError('');
     };
 
     const handleChange = (e) => {
@@ -145,12 +162,14 @@ export default function Catalogue() {
         }
     };
 
-    const handleDelete = async (id) => {
-        if (!confirm('Delete this product?')) return;
+    const handleDelete = async () => {
+        if (!productToDelete) return;
+        setFormError('');
         try {
-            await deleteProductMutation.mutateAsync(id);
+            await deleteProductMutation.mutateAsync(productToDelete.id);
+            setProductToDelete(null);
         } catch (err) {
-            alert(err.message);
+            setFormError(err.message);
         }
     };
 
@@ -228,7 +247,10 @@ export default function Catalogue() {
                                 </button>
                                 <button
                                     className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                    onClick={() => handleDelete(p.id)}
+                                    onClick={() => {
+                                        setFormError('');
+                                        setProductToDelete(p);
+                                    }}
                                     disabled={productActionBusy}
                                 >
                                     Delete
@@ -338,6 +360,40 @@ export default function Catalogue() {
                             </button>
                         </div>
                     </form>
+                </div>,
+                document.body
+            )}
+            {deleteModalOpen && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#15231d]/45 px-4 py-4 backdrop-blur-sm sm:py-8" onClick={closeDeleteModal}>
+                    <div className="w-full max-w-md rounded-[28px] border border-[#f2c7c7] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(21,35,29,0.18)]" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="delete-product-title">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-600">
+                            Delete Product
+                        </div>
+                        <h2 id="delete-product-title" className="mt-2 text-2xl font-extrabold tracking-[-0.04em] text-[#18231d]">
+                            Delete {productToDelete?.name}?
+                        </h2>
+                        <p className="mt-3 text-sm leading-7 text-[#627168]">
+                            This removes the product from your catalogue, so the assistant will stop recommending it or creating payment links for it.
+                        </p>
+                        {formError && (
+                            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                                {formError}
+                            </div>
+                        )}
+                        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                            <button type="button" className={secondaryButtonClassName} onClick={closeDeleteModal} disabled={productActionBusy}>
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="rounded-2xl border border-red-200 bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_26px_rgba(220,38,38,0.18)] transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                onClick={handleDelete}
+                                disabled={productActionBusy}
+                            >
+                                {deleteProductMutation.isPending ? 'Deleting...' : 'Delete Product'}
+                            </button>
+                        </div>
+                    </div>
                 </div>,
                 document.body
             )}
